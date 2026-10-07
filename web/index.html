@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ead3bf">
+<meta name="referrer" content="no-referrer">
+<title>Rooftop</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<!-- Icon paths from Tabler Icons (MIT). Inlined because this page must work on a Wi-Fi with no internet. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M18 11l-6-6l-6 6"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M21 12h-2c-.9 0-1.66-.86-1.76-2c-.3-3.45-.75-6-2.75-6s-2.5 3.58-2.5 8s-.5 8-2.5 8s-2.45-2.55-2.75-6c-.1-1.15-.87-2-1.76-2H3"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 8a4 4 0 0 0 0 8z" fill="currentColor"/><path d="M3 12h1m8-9v1m8 8h1m-9 8v1M5.6 5.6l.7.7m12.1-.7l-.7.7m0 11.4l.7.7m-12.1-.7l-.7.7"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 6l-6 6l6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6l-6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M7 11l5 5l5-5"/><path d="M12 4v12"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></symbol>
+</svg>
+
+<div class="intro" id="intro" hidden>
+  <div class="intro-window"></div>
+  <p class="intro-mark" aria-hidden="true"><span style="--i:0">R</span><span style="--i:1">O</span><span style="--i:2">O</span><span style="--i:3">F</span><span style="--i:4">T</span><span style="--i:5">O</span><span style="--i:6">P</span></p>
+  <p class="intro-title" aria-hidden="true">
+    <span class="intro-left"><span style="--i:0">Send</span><span style="--i:1">to</span></span>
+    <span class="intro-right"><span class="intro-corner">[offline, same Wi-Fi]</span><span style="--i:2">Rooftop</span></span>
+  </p>
+  <button class="pill pill-primary intro-enter" type="button" id="introEnter"><span class="disc"><svg class="i"><use href="#i-right"/></svg></span>Enter the city</button>
+  <p class="intro-line">No cables. No cloud. No app.<br>Just your files, flying from roof to roof.</p>
+  <p class="intro-credits">Made by Nishita, Aryan and Keshav</p>
+</div>
+
+<h1 class="sr-only">Rooftop: share files and text between devices on the same Wi-Fi</h1>
+
+<main class="frame">
+  <section class="stage" id="stage" aria-label="City view. Every received file is painted on a wall.">
+    <canvas id="city" aria-hidden="true"></canvas>
+    <div class="loader" id="loader" aria-hidden="true"><span class="crosshair"></span></div>
+    <div class="peek" id="peek" hidden><span class="peek-thumb" id="peekThumb"></span><span class="peek-text"><b id="peekName"></b><small id="peekMeta"></small></span></div>
+    <aside class="story" id="story" aria-label="Selected file" hidden>
+      <button class="story-close" type="button" id="storyClose" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+      <div class="story-art" id="storyArt"></div>
+      <p class="story-kicker" id="storyKicker"></p>
+      <h2 class="story-title" id="storyTitle"></h2>
+      <p class="story-meta" id="storyMeta"></p>
+      <a class="pill pill-primary story-save" id="storySave" download><span class="disc"><svg class="i"><use href="#i-down"/></svg></span>Save file</a>
+      <div class="story-nav">
+        <button type="button" id="storyPrev" aria-label="Previous file"><svg class="i"><use href="#i-left"/></svg></button>
+        <span id="storyCount"></span>
+        <button type="button" id="storyNext" aria-label="Next file"><svg class="i"><use href="#i-right"/></svg></button>
+      </div>
+    </aside>
+
+    <nav class="bar bar-top" aria-label="Actions">
+      <div class="joined">
+        <label class="pill pill-primary" id="sendBtn">
+          <span class="fill" id="sendFill"></span>
+          <span class="disc"><svg class="i"><use href="#i-up"/></svg></span>
+          <span id="sendLabel">Send files</span>
+          <input type="file" id="picker" multiple class="sr-only">
+        </label>
+        <button class="pill" type="button" data-sheet="inbox">Inbox</button>
+      </div>
+      <div class="joined">
+        <button class="round" type="button" data-sheet="notes" aria-label="Text and clipboard"><svg class="i"><use href="#i-wave"/></svg></button>
+        <button class="round" type="button" data-sheet="nearby" aria-label="Nearby devices"><svg class="i"><use href="#i-target"/></svg></button>
+      </div>
+    </nav>
+
+    <p class="toast" id="toast" role="status" aria-live="polite"></p>
+
+    <aside class="transmission" id="transmission" role="status" aria-live="polite" hidden>
+      <p class="tx-title">Incoming transmission</p>
+      <p class="tx-body" id="txBody"></p>
+      <a class="tx-open" id="txOpen" download>Save</a>
+      <button class="tx-open" type="button" id="txCopy" hidden>Copy</button>
+    </aside>
+
+    <div class="bar bar-bottom">
+      <label class="pill pill-to" for="sendTo">
+        <span class="to-label">Send to</span>
+        <select id="sendTo" aria-label="Who gets the files and text you send"><option value="*">Everyone</option></select>
+        <svg class="i to-caret" aria-hidden="true"><use href="#i-right"/></svg>
+      </label>
+      <button class="round" type="button" id="themeBtn" aria-label="Switch day and night" aria-pressed="false"><svg class="i"><use href="#i-sun"/></svg></button>
+    </div>
+  </section>
+
+  <aside class="host" id="host" aria-label="This PC" hidden>
+    <section class="host-card connect-card">
+      <h2>Scan to connect</h2>
+      <div class="qr-wrap"><canvas id="hostQr" width="480" height="480" aria-label="QR code that opens Rooftop on a phone"></canvas></div>
+      <p class="host-url"><span id="hostUrl">Starting</span><button class="icon-btn" type="button" id="copyUrl" aria-label="Copy link"><svg class="i"><use href="#i-copy"/></svg></button></p>
+      <p class="host-pin">PIN <strong id="hostPin">------</strong></p>
+      <p class="host-net" id="hostNet"></p>
+      <details class="host-help">
+        <summary>Phone says "not private"?</summary>
+        <p>Expected the first time. Android: Advanced, then Proceed. iPhone: Show Details, then visit this website. The link is still encrypted; no company signed this PC's certificate, that is all.</p>
+      </details>
+    </section>
+
+    <section class="host-card">
+      <h2>Connected <span class="count" id="hostCount">0</span></h2>
+      <ul class="host-devices" id="hostDevices"></ul>
+      <p class="empty" id="hostDevicesEmpty">Nobody yet. Phones show up here once they open the link.</p>
+    </section>
+
+    <section class="host-card">
+      <h2>Messages</h2>
+      <ul class="host-messages" id="hostMessages" aria-live="polite"></ul>
+      <p class="empty" id="hostMessagesEmpty">Text sent from a phone appears here and on this PC's clipboard.</p>
+    </section>
+  </aside>
+</main>
+
+<footer class="credits">Made by <b>Nishita</b>, <b>Aryan</b> and <b>Keshav</b></footer>
+
+<dialog class="sheet" id="sheet-inbox" aria-labelledby="inbox-title">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="inbox-title">Inbox</h2>
+      <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <ul class="files" id="fileList"></ul>
+    <p class="empty" id="fileEmpty">Nothing here yet. Files sent to this PC, from any phone or PC, land here and get painted on a wall.</p>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="sheet-notes" aria-labelledby="notes-title">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="notes-title">Text and clipboard</h2>
+      <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <form class="field" id="noteForm" novalidate>
+      <label for="note">Message</label>
+      <textarea id="note" rows="4" placeholder="A link, a code, an address"></textarea>
+      <p class="error" id="noteError" role="alert"></p>
+      <div class="btn-row">
+        <button class="btn btn-primary" type="submit">Send to PC</button>
+        <button class="btn" type="button" id="pullClip">Get PC clipboard</button>
+        <button class="btn" type="button" id="copyNote">Copy</button>
+      </div>
+    </form>
+    <section class="recent" aria-labelledby="recent-title">
+      <h3 id="recent-title">Recent</h3>
+      <ul class="texts" id="textList"></ul>
+      <p class="empty" id="textEmpty">No messages yet.</p>
+    </section>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="sheet-nearby" aria-labelledby="nearby-title">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="nearby-title">Nearby</h2>
+      <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <p class="you">You are <strong id="youName">this device</strong>, connected to <strong id="pcName">the PC</strong>.</p>
+    <ul class="devices" id="deviceList"></ul>
+    <p class="empty" id="deviceEmpty">No other devices right now. Phones appear when they open the link. PCs appear when they run Rooftop on this Wi-Fi.</p>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="sheet-pin" aria-labelledby="pin-title">
+  <div class="sheet-inner">
+    <header class="sheet-head"><h2 id="pin-title">Enter PIN</h2></header>
+    <form class="field" id="pinForm">
+      <label for="pinInput">PIN shown on the PC</label>
+      <input id="pinInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
+      <p class="error" id="pinError" role="alert"></p>
+      <div class="btn-row"><button class="btn btn-primary" type="submit">Unlock</button></div>
+    </form>
+  </div>
+</dialog>
+
+<div class="ring" id="ring" aria-hidden="true" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>

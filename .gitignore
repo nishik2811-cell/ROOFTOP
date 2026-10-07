@@ -1,0 +1,12 @@
+# build output
+android/build/
+*.idsig
+*.class
+
+# signing key: keep a private backup, never publish it
+*.keystore
+
+# local tool state and runtime data
+.impeccable/
+.rooftop/
+.DS_Store
