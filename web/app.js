@@ -1252,7 +1252,7 @@ function transmission(file, message) {
   const box = $('#transmission');
   const open = $('#txOpen');
   const copy = $('#txCopy');
-  notify(file ? `${file.name}` : `Message from ${message.from}`, file ? `From ${file.from}, ${humanSize(file.size)}` : message.text);
+  notify(file ? `${file.name}` : `Message from ${message.from}`, file ? `From ${file.from}, ${humanSize(file.size)}` : message.text, file ? 'file' : 'message');
   if (file) {
     $('#txBody').textContent = `${file.name} from ${file.from}`;
     open.href = saveUrl(file.name);
@@ -1898,7 +1898,7 @@ function offerSealed(list) {
   if (!next) return;
   sealedShowing = next;
   if (state.local) { receiveOnHost(next); return; }
-  notify('Private file', `${humanSize(next.size)} waiting for you`);
+  notify('Private file', `${humanSize(next.size)} waiting for you`, 'file');
   $('#sealedBody').textContent = `About ${humanSize(next.size)} waiting for you. Only this device can open it.`;
   $('#sealedCode').textContent = '';
   $('#sealedOpen').hidden = false;
@@ -2309,7 +2309,7 @@ async function receiveEnvelope(env) {
   if (looking) markConvRead(c);
   else {
     popBubble(c, msg);
-    notify(c.kind === 'p' ? person(from).name : `${person(from).name} in ${convName(c)}`, msg.text);
+    notify(c.kind === 'p' ? person(from).name : `${person(from).name} in ${convName(c)}`, msg.text, 'message');
   }
   // this PC's clipboard: messages for the PC (to everyone, or to it in person) land there, decrypted by this page only
   if (state.local && (c.kind === 'all' || c.kind === 'p')) putOnClipboard(msg.text);
@@ -2768,15 +2768,48 @@ let unseen = 0;
 const canNotify = 'Notification' in window && window.isSecureContext;
 const notifyOn = () => canNotify && Notification.permission === 'granted' && local.get('rooftop-notify') === 'on';
 
-function notify(title, body) {
+function notify(title, body, kind = 'message') {
+  if (local.get('rooftop-notify') === 'on') chime(kind);
   if (navigator.vibrate && !document.hidden) navigator.vibrate(60);
   if (!document.hidden) return;
   unseen++;
   document.title = `(${unseen}) ${baseTitle}`;
   if (notifyOn()) {
-    try { new Notification(title, { body: body.slice(0, 140), tag: 'rooftop-' + Date.now() }); } catch { /* Android Chrome wants a service worker; the title count still shows */ }
+    try { new Notification(title, { body: body.slice(0, 140), tag: 'rooftop-' + Date.now(), silent: true }); } catch { /* Android Chrome wants a service worker; the title count still shows */ }
   }
 }
+
+/* ---- the sound: a soft chime, two pure notes going up; messages a little higher than files ---- */
+let audio = null;
+function wakeAudio() { // browsers only allow sound after a click on the page, so get ready on the first one
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === 'suspended') audio.resume();
+  } catch { audio = null; }
+}
+document.addEventListener('pointerdown', wakeAudio, { once: true, capture: true });
+function chime(kind) {
+  wakeAudio();
+  if (!audio) return;
+  const [first, second] = kind === 'file' ? [523.25, 783.99] : [659.25, 880]; // C5 to G5, or E5 to A5
+  const start = audio.currentTime + 0.02;
+  const out = audio.createGain();
+  out.gain.value = 0.3;
+  out.connect(audio.destination);
+  for (const [freq, at, len] of [[first, 0, 0.9], [second, 0.14, 1.0]]) {
+    const osc = audio.createOscillator(), env = audio.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const t = start + at;
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(1, t + 0.008);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    osc.connect(env).connect(out);
+    osc.start(t);
+    osc.stop(t + len + 0.05);
+  }
+}
+
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { unseen = 0; document.title = baseTitle; } });
 
 function renderNotify() {
@@ -2798,6 +2831,7 @@ function renderNotify() {
     b.classList.toggle('on', on);
   }
   document.querySelector('.notify-art')?.classList.toggle('on', on);
+  document.querySelector('.notify-card')?.toggleAttribute('hidden', !canNotify); // e.g. inside the Android app: no card at all
 }
 document.querySelectorAll('[data-notify]').forEach((b) => b.addEventListener('click', async () => {
   if (notifyOn()) {
@@ -2817,7 +2851,8 @@ document.querySelectorAll('[data-notify]').forEach((b) => b.addEventListener('cl
   local.set('rooftop-notify', answer === 'granted' ? 'on' : 'off');
   if (answer === 'granted') {
     // show one right away, so it is clear they work (the real ones come while Rooftop is in the background)
-    try { new Notification('Rooftop notifications are on', { body: 'You will get one like this when a file or message arrives while Rooftop is in the background.' }); } catch { /* the toast still says it */ }
+    chime('message'); // the sound you will hear
+    try { new Notification('Rooftop notifications are on', { body: 'You will get one like this when a file or message arrives while Rooftop is in the background.', silent: true }); } catch { /* the toast still says it */ }
     toast('Notifications on. You will get one when something arrives while Rooftop is in the background.', 6000);
   } else if (answer === 'denied') {
     toast('The browser blocked notifications. Click the icon left of the address bar, set Notifications to Allow, then try again.', 9000);
