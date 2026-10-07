@@ -104,6 +104,7 @@ public class WebServer {
                 String[] page = PAGES.get(req.path);
                 res.header("Cache-Control", "no-cache").send(200, page[1], app.platform().asset(page[0]));
             } else if (req.path.startsWith("/api/")) {
+                res.header("Cache-Control", "no-store"); // live data and files: never kept in a browser cache
                 api(req, res, req.path.substring("/api".length()));
             } else {
                 res.send(404, TEXT, "not found");
