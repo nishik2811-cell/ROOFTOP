@@ -109,6 +109,40 @@ public class SelfTest {
             caught = e.getMessage().contains("tampered");
         }
         check(caught, "tampered ciphertext is rejected");
+        // end-to-end files: the PC stores only ciphertext without the name, and forgets the transfer after the last ack
+        byte[] secretText = "the plans for saturday, do not tell anyone\n".repeat(8000).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.security.KeyPair sender = Rte2.pair(), phoneB = Rte2.pair(), phoneC = Rte2.pair(), stranger = Rte2.pair();
+        byte[] blob = Rte2.seal(secretText, "saturday-plans.txt", java.util.List.of(Rte2.raw(phoneB), Rte2.raw(phoneC)), sender);
+        Path sealedDir = Files.createTempDirectory("rooftop-sealed-test");
+        rooftop.model.SealedBox box = new rooftop.model.SealedBox(sealedDir);
+        String tid = "00112233445566778899aabbccddeeff";
+        box.append(tid, java.util.Set.of("web B", "web C"), blob.length, 0, new ByteArrayInputStream(blob), blob.length);
+        byte[] stored = Files.readAllBytes(sealedDir.resolve(tid));
+        check(!Arrays.equals(stored, secretText) && Rte2.indexOf(stored, "saturday".getBytes(java.nio.charset.StandardCharsets.UTF_8)) < 0
+                && Rte2.indexOf(stored, "the plans".getBytes(java.nio.charset.StandardCharsets.UTF_8)) < 0,
+                "the PC's stored copy differs from the original and contains neither the file name nor its text");
+        check(stored.length >= 64 * 1024 && box.waitingFor("web B").size() == 1 && box.waitingFor("web X").isEmpty(),
+                "it is padded (" + stored.length + " bytes for a " + secretText.length + "-byte file) and offered only to its recipients");
+        Object[] openedB = Rte2.open(Files.readAllBytes(box.collect(tid, "web B")), phoneB);
+        Object[] openedC = Rte2.open(Files.readAllBytes(box.collect(tid, "web C")), phoneC);
+        check("saturday-plans.txt".equals(openedB[0]) && Arrays.equals((byte[]) openedB[1], secretText) && Arrays.equals((byte[]) openedC[1], secretText),
+                "each recipient opens its own copy, name and bytes intact");
+        String strangerResult = Rte2.tryOpen(stored, stranger);
+        byte[] swappedBlob = stored.clone();
+        System.arraycopy(Rte2.raw(stranger), 0, swappedBlob, 8 + 7, 65); // someone puts their own key in as the sender's
+        String swappedResult = Rte2.tryOpen(swappedBlob, phoneB);
+        check(strangerResult.contains("not sealed for") && swappedResult.contains("swapped"),
+                "a stranger cannot open it, and a swapped sender key is detected (" + swappedResult + ")");
+        box.acknowledge(tid, "web B");
+        boolean stillThere = Files.exists(sealedDir.resolve(tid)) && box.waitingFor("web C").size() == 1;
+        box.acknowledge(tid, "web C");
+        boolean gone = !Files.exists(sealedDir.resolve(tid)) && box.count() == 0 && box.waitingFor("web C").isEmpty();
+        boolean collectRefused = false;
+        try { box.collect(tid, "web C"); } catch (java.nio.file.NoSuchFileException e) { collectRefused = true; }
+        String[] leftovers;
+        try (var list = Files.list(sealedDir)) { leftovers = list.map(p -> p.getFileName().toString()).toArray(String[]::new); }
+        check(stillThere && gone && collectRefused && leftovers.length == 0, "nothing about the transfer is left after the last acknowledgement");
+
         // PC to PC: the handshake is tied to the receiver's PIN, so a wrong PIN or a swapped key fails before any data
         String[] right = handshake("482915", "482915", false);
         check(right[0].equals("ok") && right[1].equals("ok") && right[2].equals(right[3]) && right[4].equals("hello"),
@@ -125,6 +159,174 @@ public class SelfTest {
         check(shutOut, "after 10 failed handshakes that PC is shut out");
 
         System.out.println("all checks passed");
+    }
+
+    /**
+     * The browser's sealed format (web/e2e.js, "RTE2") redone in Java, so the PC side can be checked without a
+     * browser: a random file key per file, wrapped for each recipient with HKDF over two ECDH results.
+     */
+    static final class Rte2 {
+        private static final int CHUNK = 1 << 20, ID = 7, ENTRY = 8 + 65 + 16 + 48;
+        private static final byte[] WRAP_INFO = "rooftop end-to-end v2 wrap".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
+        static java.security.KeyPair pair() throws Exception {
+            java.security.KeyPairGenerator g = java.security.KeyPairGenerator.getInstance("EC");
+            g.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+            return g.generateKeyPair();
+        }
+
+        static byte[] raw(java.security.KeyPair p) {
+            java.security.spec.ECPoint w = ((java.security.interfaces.ECPublicKey) p.getPublic()).getW();
+            byte[] out = new byte[65];
+            out[0] = 4;
+            copy32(w.getAffineX(), out, 1);
+            copy32(w.getAffineY(), out, 33);
+            return out;
+        }
+
+        private static void copy32(java.math.BigInteger v, byte[] out, int at) {
+            byte[] b = v.toByteArray();
+            int n = Math.min(32, b.length);
+            System.arraycopy(b, b.length - n, out, at + 32 - n, n);
+        }
+
+        private static byte[] dh(java.security.KeyPair mine, byte[] otherRaw) throws Exception {
+            var params = ((java.security.interfaces.ECPublicKey) mine.getPublic()).getParams();
+            var point = new java.security.spec.ECPoint(new java.math.BigInteger(1, Arrays.copyOfRange(otherRaw, 1, 33)),
+                    new java.math.BigInteger(1, Arrays.copyOfRange(otherRaw, 33, 65)));
+            var other = java.security.KeyFactory.getInstance("EC").generatePublic(new java.security.spec.ECPublicKeySpec(point, params));
+            javax.crypto.KeyAgreement ka = javax.crypto.KeyAgreement.getInstance("ECDH");
+            ka.init(mine.getPrivate());
+            ka.doPhase(other, true);
+            return ka.generateSecret();
+        }
+
+        private static byte[] hmac(byte[] key, byte[]... parts) throws Exception {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(key, "HmacSHA256"));
+            for (byte[] p : parts) mac.update(p);
+            return mac.doFinal();
+        }
+
+        private static byte[] hkdf(byte[] ikm, byte[] salt, byte[] info) throws Exception {
+            return hmac(hmac(salt, ikm), info, new byte[]{1});
+        }
+
+        private static byte[] gcm(int mode, byte[] key, byte[] iv, byte[] data) throws Exception {
+            javax.crypto.Cipher c = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+            c.init(mode, new javax.crypto.spec.SecretKeySpec(key, "AES"), new javax.crypto.spec.GCMParameterSpec(128, iv));
+            return c.doFinal(data);
+        }
+
+        private static byte[] nonce(byte[] fileId, int index, boolean last, boolean details) {
+            byte[] n = new byte[12];
+            System.arraycopy(fileId, 0, n, 0, ID);
+            n[7] = (byte) ((last ? 1 : 0) | (details ? 2 : 0));
+            n[8] = (byte) (index >>> 24); n[9] = (byte) (index >>> 16); n[10] = (byte) (index >>> 8); n[11] = (byte) index;
+            return n;
+        }
+
+        private static byte[] cat(byte[]... parts) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            for (byte[] p : parts) out.write(p, 0, p.length);
+            return out.toByteArray();
+        }
+
+        private static byte[] tag(byte[] raw) throws Exception {
+            return Arrays.copyOf(java.security.MessageDigest.getInstance("SHA-256").digest(raw), 8);
+        }
+
+        static long paddedSize(long size) {
+            if (size <= 65536) return 65536;
+            long step = 1L << (63 - Long.numberOfLeadingZeros(size) - 4);
+            return (size + step - 1) / step * step;
+        }
+
+        static byte[] seal(byte[] data, String name, java.util.List<byte[]> recipients, java.security.KeyPair sender) throws Exception {
+            byte[] fileId = new byte[ID], fileKey = new byte[32];
+            RANDOM.nextBytes(fileId);
+            RANDOM.nextBytes(fileKey);
+            byte[] senderRaw = raw(sender);
+            java.io.ByteArrayOutputStream entries = new java.io.ByteArrayOutputStream();
+            for (byte[] r : recipients) {
+                java.security.KeyPair eph = pair();
+                byte[] ephRaw = raw(eph), salt = new byte[16];
+                RANDOM.nextBytes(salt);
+                byte[] k = hkdf(cat(dh(eph, r), dh(sender, r)), salt, cat(WRAP_INFO, fileId, senderRaw, ephRaw, r));
+                entries.write(cat(tag(r), ephRaw, salt, gcm(javax.crypto.Cipher.ENCRYPT_MODE, k, new byte[12], fileKey)));
+            }
+            byte[] json = ("{\"name\":" + Texts.json(name) + ",\"size\":" + data.length + "}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            byte[] padded = Arrays.copyOf(json, (json.length + 1 + 255) / 256 * 256);
+            byte[] details = gcm(javax.crypto.Cipher.ENCRYPT_MODE, fileKey, nonce(fileId, 0, true, true), padded);
+            byte[] header = cat(fileId, senderRaw, new byte[]{(byte) recipients.size()}, entries.toByteArray(),
+                    java.nio.ByteBuffer.allocate(4).putInt(details.length).array(), details);
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            out.write(new byte[]{'R', 'T', 'E', '2'});
+            out.write(java.nio.ByteBuffer.allocate(4).putInt(header.length).array());
+            out.write(header);
+            byte[] plain = Arrays.copyOf(data, (int) paddedSize(data.length)); // zeros past the end: padding
+            int n = Math.max(1, (plain.length + CHUNK - 1) / CHUNK);
+            for (int i = 0; i < n; i++)
+                out.write(gcm(javax.crypto.Cipher.ENCRYPT_MODE, fileKey, nonce(fileId, i, i == n - 1, false),
+                        Arrays.copyOfRange(plain, i * CHUNK, Math.min(plain.length, (i + 1) * CHUNK))));
+            return out.toByteArray();
+        }
+
+        /** {name, bytes}; throws if this key is not a recipient or anything was changed. */
+        static Object[] open(byte[] blob, java.security.KeyPair me) throws Exception {
+            java.nio.ByteBuffer in = java.nio.ByteBuffer.wrap(blob);
+            if (in.getInt() != 0x52544532) throw new IOException("not a sealed file");
+            int headerLength = in.getInt();
+            byte[] header = new byte[headerLength];
+            in.get(header);
+            byte[] fileId = Arrays.copyOf(header, ID), senderRaw = Arrays.copyOfRange(header, ID, ID + 65), myRaw = raw(me), myTag = tag(myRaw);
+            int count = header[ID + 65] & 0xFF;
+            byte[] fileKey = null;
+            for (int i = 0; i < count; i++) {
+                int at = ID + 66 + i * ENTRY;
+                if (!Arrays.equals(Arrays.copyOfRange(header, at, at + 8), myTag)) continue;
+                byte[] ephRaw = Arrays.copyOfRange(header, at + 8, at + 73), salt = Arrays.copyOfRange(header, at + 73, at + 89);
+                byte[] k = hkdf(cat(dh(me, ephRaw), dh(me, senderRaw)), salt, cat(WRAP_INFO, fileId, senderRaw, ephRaw, myRaw));
+                try {
+                    fileKey = gcm(javax.crypto.Cipher.DECRYPT_MODE, k, new byte[12], Arrays.copyOfRange(header, at + 89, at + ENTRY));
+                } catch (javax.crypto.AEADBadTagException e) {
+                    throw new IOException("the sender's key does not match: it was swapped or damaged on the way");
+                }
+            }
+            if (fileKey == null) throw new IOException("this file was not sealed for this device");
+            int at = ID + 66 + count * ENTRY;
+            int detailsLength = java.nio.ByteBuffer.wrap(header, at, 4).getInt();
+            String json = new String(gcm(javax.crypto.Cipher.DECRYPT_MODE, fileKey, nonce(fileId, 0, true, true),
+                    Arrays.copyOfRange(header, at + 4, at + 4 + detailsLength)), java.nio.charset.StandardCharsets.UTF_8).replace("\u0000", "");
+            String name = json.replaceAll(".*\"name\":\"([^\"]*)\".*", "$1");
+            int size = Integer.parseInt(json.replaceAll(".*\"size\":(\\d+).*", "$1"));
+            java.io.ByteArrayOutputStream plain = new java.io.ByteArrayOutputStream();
+            for (int i = 0; in.hasRemaining(); i++) {
+                byte[] sealed = new byte[Math.min(in.remaining(), CHUNK + 16)];
+                in.get(sealed);
+                plain.write(gcm(javax.crypto.Cipher.DECRYPT_MODE, fileKey, nonce(fileId, i, !in.hasRemaining(), false), sealed));
+            }
+            return new Object[]{name, Arrays.copyOf(plain.toByteArray(), size)};
+        }
+
+        static String tryOpen(byte[] blob, java.security.KeyPair me) {
+            try {
+                open(blob, me);
+                return "opened";
+            } catch (Exception e) {
+                return String.valueOf(e.getMessage());
+            }
+        }
+
+        static int indexOf(byte[] hay, byte[] needle) {
+            outer:
+            for (int i = 0; i + needle.length <= hay.length; i++) {
+                for (int j = 0; j < needle.length; j++) if (hay[i + j] != needle[j]) continue outer;
+                return i;
+            }
+            return -1;
+        }
     }
 
     /** Encodes data as Frames followed by a marker byte, decodes it again: {decoded, ratio, marker intact, wire bytes}. */

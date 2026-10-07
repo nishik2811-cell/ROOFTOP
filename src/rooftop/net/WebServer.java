@@ -67,6 +67,8 @@ public class WebServer {
     private String scheme = "https";
     /** Resumable uploads in progress: when the first piece came, and bytes on the wire vs bytes of file so far. */
     private final Map<String, long[]> uploads = new ConcurrentHashMap<>();
+    /** When this PC's own page last asked for the state: sealed files are only offered to it while it is open. */
+    private volatile long hostPageSeen;
 
     public WebServer(Rooftop app) {
         this.app = app;
@@ -127,22 +129,38 @@ public class WebServer {
         boolean post = "POST".equals(req.method);
 
         switch (route) {
-            case "/state" -> res.send(200, JSON, stateJson(visitor, visitorId, local));
+            case "/state" -> {
+                if (local) hostPageSeen = System.currentTimeMillis();
+                res.send(200, JSON, stateJson(visitor, visitorId, local));
+            }
+            case "/qr" -> { // the QR code for a device's own key link, so another device can scan it to verify the key
+                String text = req.query.getOrDefault("text", "");
+                if (text.isEmpty() || text.length() > 400) res.send(400, TEXT, "bad text");
+                else res.header("Cache-Control", "no-store").send(200, JSON, qrJson(text));
+            }
             case "/connect" -> {
                 if (local) res.send(200, JSON, connectJson());
                 else res.send(404, TEXT, "not found");
             }
             case "/upload" -> {
+                if (!local) { // other devices send end-to-end encrypted files only (see /sealed/upload)
+                    req.body.skip(Math.max(0, req.length));
+                    res.send(403, TEXT, "this Rooftop only takes end-to-end encrypted files. Reload the page.");
+                    return;
+                }
+                // the PC's own page saves files it decrypted; "as" keeps the real sender on the file
+                NetworkDevice sender = req.query.containsKey("as") ? app.devices().find(req.query.get("as")).orElse(null) : null;
+                String from = sender != null ? sender.name() : visitor, fromId = sender != null ? sender.id() : visitorId;
                 if (!post) res.send(405, TEXT, "POST only");
                 else if (req.length < 0) res.send(411, TEXT, "Content-Length required");
-                else if (req.query.containsKey("key")) uploadPiece(req, res, visitor, visitorId);
+                else if (req.query.containsKey("key")) uploadPiece(req, res, from, fromId);
                 else {
                     String to = recipient(req.query.get("to"));
                     long started = System.nanoTime();
-                    ReceivedItem item = app.inbox().store(req.query.get("name"), req.body, req.length, visitor, visitorId, to, new Progress(req.length));
-                    app.history().add(new History.Entry(System.currentTimeMillis(), item.name(), item.size(), visitor, visitorId, to,
+                    ReceivedItem item = app.inbox().store(req.query.get("name"), req.body, req.length, from, fromId, to, new Progress(req.length));
+                    app.history().add(new History.Entry(System.currentTimeMillis(), item.name(), item.size(), from, fromId, to,
                             recipientName(to), true, (System.nanoTime() - started) / 1_000_000, 1, ""));
-                    app.log().add(visitor + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(req.length) + ", "
+                    app.log().add(from + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(req.length) + ", "
                             + Texts.speed(req.length, System.nanoTime() - started) + ")");
                     res.send(200, JSON, "{\"name\":" + Texts.json(item.name()) + "}");
                 }
@@ -290,8 +308,8 @@ public class WebServer {
      * The recipient must be a connected browser with a key; the PC itself never takes sealed files.
      */
     private void sealedPiece(Http.Request req, Http.Response res, String visitorId) throws IOException {
-        String to = req.query.getOrDefault("to", "");
-        boolean recipientOk = app.devices().find(to).filter(d -> !d.publicKey().isEmpty()).isPresent() && !to.equals(visitorId);
+        java.util.Set<String> to = new java.util.HashSet<>(java.util.Arrays.asList(req.query.getOrDefault("to", "").split(",")));
+        boolean recipientOk = !to.isEmpty() && to.size() <= 255 && !to.contains(visitorId) && to.stream().allMatch(this::canReceiveSealed);
         long size, offset;
         try {
             size = Long.parseLong(req.query.getOrDefault("size", "-1"));
@@ -313,6 +331,16 @@ public class WebServer {
             return;
         }
         res.header("Cache-Control", "no-store").send(200, JSON, "{\"offset\":" + (offset + req.length) + ",\"done\":" + (offset + req.length == size) + "}");
+    }
+
+    /** A device with an end-to-end key: a connected browser, or this PC while its own page is open. */
+    private boolean canReceiveSealed(String id) {
+        if (app.me().id().equals(id)) return hostPageOpen() && !app.me().publicKey().isEmpty();
+        return app.devices().find(id).filter(d -> d.isOnline() && !d.publicKey().isEmpty()).isPresent();
+    }
+
+    private boolean hostPageOpen() {
+        return System.currentTimeMillis() - hostPageSeen < 10_000;
     }
 
     private PhoneClient visitor(Http.Request req) {
@@ -359,7 +387,7 @@ public class WebServer {
                     + ",\"removable\":" + canRemove(i, visitorId, local) + ",\"mine\":" + i.fromId().equals(visitorId) + "}");
         }
 
-        StringJoiner sealed = new StringJoiner(",", "[", "]"); // only ever this visitor's own, and never for the host
+        StringJoiner sealed = new StringJoiner(",", "[", "]"); // only ever this visitor's own
         try {
             for (SealedBox.Waiting w : app.sealed().waitingFor(visitorId))
                 sealed.add("{\"id\":" + Texts.json(w.id()) + ",\"size\":" + w.size() + ",\"at\":" + w.at() + "}");
@@ -380,6 +408,8 @@ public class WebServer {
                 + ",\"youId\":" + Texts.json(visitorId) + ",\"local\":" + local
                 + ",\"devices\":" + devices + ",\"files\":" + files + ",\"texts\":" + texts + ",\"sealed\":" + sealed
                 + ",\"historyAt\":" + (history.isEmpty() ? 0 : history.get(0).at())
+                + ",\"session\":" + Texts.json(app.session())
+                + ",\"meKey\":" + Texts.json(canReceiveSealed(app.me().id()) ? app.me().publicKey() : "")
                 + ",\"youKey\":" + Texts.json(local ? app.me().publicKey() : app.devices().find(visitorId).map(Device::publicKey).orElse("")) + "}";
     }
 
@@ -393,6 +423,16 @@ public class WebServer {
                     + ",\"mine\":" + e.fromId().equals(visitorId) + "}");
         }
         return out.toString();
+    }
+
+    private static String qrJson(String text) {
+        StringJoiner rows = new StringJoiner(",", "[", "]");
+        for (boolean[] row : QrCode.encode(text)) {
+            StringBuilder sb = new StringBuilder(row.length);
+            for (boolean dark : row) sb.append(dark ? '1' : '0');
+            rows.add("\"" + sb + "\"");
+        }
+        return "{\"qr\":" + rows + "}";
     }
 
     private String connectJson() throws IOException {

@@ -1255,3 +1255,35 @@ body.intro-on .tray { visibility: hidden; }
   .tray { left: 10px; right: 10px; width: auto; max-height: 46dvh; }
   .chat .msg { max-width: 92%; }
 }
+
+/* ---------- keys: verify codes, avatars, scanner ---------- */
+.avatar {
+  flex: none;
+  width: 26px; height: 26px; border-radius: 50%;
+  display: inline-grid; place-items: center;
+  color: #fff; font: 700 10px var(--mono); letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgb(0 0 0 / 0.25);
+}
+.avatar.big { width: 34px; height: 34px; font-size: 12px; }
+.keys { display: grid; gap: 10px; }
+.key-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.key-list li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.key-list .key-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key-list .code { color: var(--accent); font-size: 12px; letter-spacing: 0.08em; }
+.key-list .no-key .code { color: var(--danger); }
+.verify-btn {
+  flex: none; padding: 6px 10px; border: 1px solid var(--chalk-dim); border-radius: 999px;
+  background: transparent; color: var(--chalk); font: 600 11px var(--mono); cursor: pointer;
+}
+.verify-btn.on { background: #2a8c5c; border-color: #2a8c5c; color: #fff; }
+.my-key { display: grid; justify-items: start; gap: 6px; }
+.my-key canvas { width: 132px; height: 132px; image-rendering: pixelated; border-radius: 6px; background: #fff; }
+.host .my-key .qr-wrap { padding: 8px; }
+.scan {
+  position: fixed; inset: 0; z-index: 20;
+  display: grid; place-content: center; justify-items: center; gap: 14px;
+  background: rgb(10 9 8 / 0.92); color: var(--chalk); font: 13px var(--mono);
+}
+.scan video { width: min(80vw, 360px); aspect-ratio: 1; object-fit: cover; border-radius: 18px; box-shadow: 4px 4px 0 var(--pink), 8px 8px 0 var(--accent); }
+.devices li, .host-devices li { align-items: center; }
+.dev-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

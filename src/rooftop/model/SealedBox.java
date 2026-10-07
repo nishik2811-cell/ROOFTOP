@@ -21,10 +21,11 @@ import rooftop.error.OffsetMismatchException;
 import rooftop.util.Streams;
 
 /**
- * End-to-end encrypted files waiting for their one recipient. The sender's browser sealed them with the
- * recipient's key, so this PC only ever holds bytes it cannot read. Kept out of the Inbox on purpose: nothing here
- * shows up in the city, the inbox, the log or the terminal, and only the minimum is remembered
- * (recipient id, size, when it arrived), in memory only.
+ * End-to-end encrypted files waiting for their recipients. The sender's browser sealed each one with a fresh file key
+ * wrapped for every recipient, so this PC only ever holds bytes it cannot read (wrapped keys included). Kept out of
+ * the Inbox on purpose: nothing here shows up in the city, the inbox, the history, the log or the terminal, and only
+ * the minimum is remembered, in memory only: the transfer id, the recipient ids, the padded size, and when it
+ * arrived (for the one-hour limit). Once every recipient has acknowledged, the bytes and that record are deleted.
  */
 public class SealedBox {
     public static final long KEEP_MS = 60 * 60 * 1000; // uncollected sealed files are deleted after an hour
@@ -33,7 +34,7 @@ public class SealedBox {
     public record Waiting(String id, long size, long at) {
     }
 
-    private record Entry(String to, long size, long at) {
+    private record Entry(Set<String> to, long size, long at, Set<String> collected) {
     }
 
     private final Path dir;
@@ -57,12 +58,12 @@ public class SealedBox {
         return dir.resolve(id);
     }
 
-    /** Appends a piece of sealed bytes (resumable, like the inbox). */
-    public void append(String id, String to, long size, long offset, InputStream in, long count) throws IOException {
+    /** Appends a piece of sealed bytes (resumable, like the inbox), for the devices in {@code to}. */
+    public void append(String id, Set<String> to, long size, long offset, InputStream in, long count) throws IOException {
         Path p = path(id);
         synchronized (this) {
             Entry e = entries.get(id);
-            if (e == null) entries.put(id, new Entry(to, size, System.currentTimeMillis()));
+            if (e == null) entries.put(id, new Entry(new HashSet<>(to), size, System.currentTimeMillis(), new HashSet<>()));
             else if (!e.to().equals(to) || e.size() != size) throw new IOException("this upload belongs to another transfer");
             if (!busy.add(id)) throw new IOException("already arriving on another connection");
         }
@@ -85,7 +86,8 @@ public class SealedBox {
         List<Waiting> out = new ArrayList<>();
         for (Map.Entry<String, Entry> e : entries.entrySet()) {
             Path p = dir.resolve(e.getKey());
-            if (e.getValue().to().equals(deviceId) && Files.exists(p) && Files.size(p) == e.getValue().size())
+            Entry v = e.getValue();
+            if (v.to().contains(deviceId) && !v.collected().contains(deviceId) && Files.exists(p) && Files.size(p) == v.size())
                 out.add(new Waiting(e.getKey(), e.getValue().size(), e.getValue().at()));
         }
         return out;
@@ -95,16 +97,19 @@ public class SealedBox {
     public synchronized Path collect(String id, String deviceId) throws IOException {
         Entry e = entries.get(id);
         Path p = path(id);
-        if (e == null || !e.to().equals(deviceId) || !Files.exists(p) || Files.size(p) != e.size()) throw new NoSuchFileException("sealed");
+        if (e == null || !e.to().contains(deviceId) || e.collected().contains(deviceId) || !Files.exists(p) || Files.size(p) != e.size())
+            throw new NoSuchFileException("sealed");
         return p;
     }
 
-    /** The recipient saved it: delete the bytes and forget it ever existed. */
+    /** A recipient saved its copy. After the last one, delete the bytes and forget the transfer ever existed. */
     public synchronized boolean acknowledge(String id, String deviceId) throws IOException {
         Entry e = entries.get(id);
-        if (e == null || !e.to().equals(deviceId)) return false;
-        entries.remove(id);
-        Files.deleteIfExists(path(id));
+        if (e == null || !e.to().contains(deviceId) || !e.collected().add(deviceId)) return false;
+        if (e.collected().containsAll(e.to())) {
+            entries.remove(id);
+            Files.deleteIfExists(path(id));
+        }
         return true;
     }
 

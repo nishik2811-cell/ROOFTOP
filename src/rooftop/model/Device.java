@@ -39,6 +39,11 @@ public abstract class Device {
         return publicKey;
     }
 
+    /** Forgets the end-to-end key, e.g. when a session ends and every browser makes a new one. */
+    public void clearPublicKey() {
+        publicKey = "";
+    }
+
     /** A P-256 public key is 65 bytes, 87 characters of base64url. Anything else is ignored. */
     public void setPublicKey(String key) {
         if (key != null && key.matches("[A-Za-z0-9_-]{80,100}")) publicKey = key;
