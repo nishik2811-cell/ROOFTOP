@@ -165,16 +165,22 @@ public class WebServer {
                     res.send(200, JSON, "{\"name\":" + Texts.json(item.name()) + "}");
                 }
             }
-            case "/text" -> {
+            case "/text" -> { // chat is end to end now (see /chat); browsers never send text in plain
+                req.body.skip(Math.max(0, req.length));
+                res.send(410, TEXT, "chat is end-to-end encrypted now. Reload the page.");
+            }
+            case "/chat/send" -> {
                 if (!post) {
                     res.send(405, TEXT, "POST only");
                     return;
                 }
-                String text = new String(rooftop.util.Streams.readUpTo(req.body, Wire.MAX_TEXT), StandardCharsets.UTF_8);
-                if (!text.trim().isEmpty()) app.receiveText(text, visitor, visitorId, recipient(req.query.get("to")));
-                res.send(200, TEXT, "ok");
+                chatSend(req, res, visitorId);
             }
-            case "/clip" -> res.send(200, TEXT, app.clipboard());
+            case "/chat" -> res.header("Cache-Control", "no-store").send(200, JSON, chatJson(req, visitorId));
+            case "/clip" -> {
+                if (local) res.send(200, TEXT, app.clipboard());
+                else res.send(404, TEXT, "not found");
+            }
             case "/name" -> { // a device picks the name others see
                 if (!post) {
                     res.send(405, TEXT, "POST only");
@@ -333,6 +339,50 @@ public class WebServer {
         res.header("Cache-Control", "no-store").send(200, JSON, "{\"offset\":" + (offset + req.length) + ",\"done\":" + (offset + req.length == size) + "}");
     }
 
+    /** Stores one sealed chat envelope for the listed devices. Deliberately silent: no log, no history. */
+    private void chatSend(Http.Request req, Http.Response res, String visitorId) throws IOException {
+        if (req.length < 0 || req.length > rooftop.model.ChatBox.MAX_BYTES) {
+            req.body.skip(Math.max(0, req.length));
+            res.send(413, TEXT, "message too large");
+            return;
+        }
+        byte[] bytes = rooftop.util.Streams.readFully(req.body, (int) req.length);
+        java.util.Set<String> to = new java.util.HashSet<>(java.util.Arrays.asList(req.query.getOrDefault("to", "").split(",")));
+        boolean ok = !to.isEmpty() && to.size() <= 255 && to.stream().allMatch(id -> id.equals(visitorId) || canChat(id));
+        int ttl;
+        try {
+            ttl = Math.max(0, Math.min(60, Integer.parseInt(req.query.getOrDefault("ttl", "0"))));
+        } catch (NumberFormatException e) {
+            ttl = 0;
+        }
+        if (!ok) {
+            res.send(400, TEXT, "someone in that conversation cannot receive encrypted chat");
+            return;
+        }
+        long seq = app.chat().add(visitorId, to, bytes, ttl);
+        res.header("Cache-Control", "no-store").send(200, JSON, "{\"seq\":" + seq + "}");
+    }
+
+    /** Chat reaches devices that have a key even while they are briefly away (a phone in a pocket), not just online ones. */
+    private boolean canChat(String id) {
+        if (app.me().id().equals(id)) return !app.me().publicKey().isEmpty();
+        return app.devices().find(id).filter(d -> !d.publicKey().isEmpty()).isPresent();
+    }
+
+    private String chatJson(Http.Request req, String visitorId) {
+        long after;
+        try {
+            after = Long.parseLong(req.query.getOrDefault("after", "0"));
+        } catch (NumberFormatException e) {
+            after = 0;
+        }
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        for (rooftop.model.ChatBox.Envelope e : app.chat().since(after, visitorId))
+            out.add("{\"seq\":" + e.seq() + ",\"from\":" + Texts.json(e.from()) + ",\"at\":" + e.at()
+                    + ",\"data\":\"" + java.util.Base64.getEncoder().encodeToString(e.bytes()) + "\"}");
+        return "{\"latest\":" + app.chat().latest() + ",\"envelopes\":" + out + "}";
+    }
+
     /** A device with an end-to-end key: a connected browser, or this PC while its own page is open. */
     private boolean canReceiveSealed(String id) {
         if (app.me().id().equals(id)) return hostPageOpen() && !app.me().publicKey().isEmpty();
@@ -409,7 +459,7 @@ public class WebServer {
                 + ",\"youId\":" + Texts.json(visitorId) + ",\"local\":" + local
                 + ",\"devices\":" + devices + ",\"files\":" + files + ",\"texts\":" + texts + ",\"sealed\":" + sealed
                 + ",\"historyAt\":" + (history.isEmpty() ? 0 : history.get(0).at())
-                + ",\"session\":" + Texts.json(app.session()) + ",\"meNamed\":" + app.named()
+                + ",\"session\":" + Texts.json(app.session()) + ",\"meNamed\":" + app.named() + ",\"chatSeq\":" + app.chat().latest()
                 + ",\"meKey\":" + Texts.json(canReceiveSealed(app.me().id()) ? app.me().publicKey() : "")
                 + ",\"youKey\":" + Texts.json(local ? app.me().publicKey() : app.devices().find(visitorId).map(Device::publicKey).orElse("")) + "}";
     }

@@ -143,6 +143,34 @@ public class SelfTest {
         try (var list = Files.list(sealedDir)) { leftovers = list.map(p -> p.getFileName().toString()).toArray(String[]::new); }
         check(stillThere && gone && collectRefused && leftovers.length == 0, "nothing about the transfer is left after the last acknowledgement");
 
+        // chat: the PC relays sealed messages it cannot read, padded, and forgets every one of them at session end
+        Path chatHome = Files.createTempDirectory("rooftop-chat-test");
+        Rooftop room = new Rooftop(new Platform() {
+            public String deviceName() { return "test PC"; }
+            public Path inboxDir() { return chatHome.resolve("Rooftop"); }
+            public byte[] asset(String name) { return new byte[0]; }
+            public void setClipboard(String text) { }
+            public String clipboard() { return ""; }
+        });
+        String hello = "meet at the roof at six, bring the speaker";
+        byte[] msg = Rte2.sealMessage("{\"k\":\"msg\",\"c\":\"all\",\"t\":" + Texts.json(hello) + "}",
+                java.util.List.of(Rte2.raw(phoneB), Rte2.raw(phoneC)), sender);
+        byte[] shortMsg = Rte2.sealMessage("{\"k\":\"msg\",\"c\":\"all\",\"t\":\"ok\"}", java.util.List.of(Rte2.raw(phoneB), Rte2.raw(phoneC)), sender);
+        room.chat().add("web A", java.util.Set.of("web B", "web C"), msg, 0);
+        byte[] storedMsg = room.chat().since(0, "web B").get(0).bytes();
+        int body = storedMsg.length - (4 + 7 + 66 + 2 * (8 + 65 + 16 + 48)) - 16;
+        check(Rte2.indexOf(storedMsg, "meet at the roof".getBytes(java.nio.charset.StandardCharsets.UTF_8)) < 0 && body % 64 == 0
+                && body >= 256 && shortMsg.length == msg.length && Rte2.openMessage(storedMsg, phoneC).contains(hello),
+                "a stored chat message is not its text, is padded (\"ok\" and a whole sentence store the same size, " + msg.length + " bytes), and only recipients read it");
+        String groupName = "Saturday crew";
+        byte[] groupMsg = Rte2.sealMessage("{\"k\":\"group\",\"g\":\"abc\",\"n\":" + Texts.json(groupName) + ",\"m\":[\"web A\",\"web B\"]}",
+                java.util.List.of(Rte2.raw(phoneB)), sender);
+        room.chat().add("web A", java.util.Set.of("web A", "web B"), groupMsg, 0);
+        boolean nameHidden = room.chat().all().stream().noneMatch(e -> Rte2.indexOf(e.bytes(), "Saturday".getBytes(java.nio.charset.StandardCharsets.UTF_8)) >= 0);
+        check(nameHidden && room.chat().since(0, "web C").size() == 1, "a group's name is not stored in plaintext, and non-members are not handed its envelope");
+        room.newSession();
+        check(room.chat().all().isEmpty() && room.chat().since(0, "web B").isEmpty(), "ending the session clears every message and group");
+
         // PC to PC: the handshake is tied to the receiver's PIN, so a wrong PIN or a swapped key fails before any data
         String[] right = handshake("482915", "482915", false);
         check(right[0].equals("ok") && right[1].equals("ok") && right[2].equals(right[3]) && right[4].equals("hello"),
@@ -309,6 +337,46 @@ public class SelfTest {
             }
             return new Object[]{name, Arrays.copyOf(plain.toByteArray(), size)};
         }
+
+        /** A chat envelope ("RTM1"): a fresh key per message, wrapped per recipient, JSON zero-padded to 256 bytes, then to 64. */
+        static byte[] sealMessage(String json, java.util.List<byte[]> recipients, java.security.KeyPair sender) throws Exception {
+            byte[] id = new byte[ID], key = new byte[32];
+            RANDOM.nextBytes(id);
+            RANDOM.nextBytes(key);
+            byte[] senderRaw = raw(sender);
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            out.write(new byte[]{'R', 'T', 'M', '1'});
+            out.write(id);
+            out.write(senderRaw);
+            out.write(recipients.size());
+            for (byte[] r : recipients) {
+                java.security.KeyPair eph = pair();
+                byte[] ephRaw = raw(eph), salt = new byte[16];
+                RANDOM.nextBytes(salt);
+                byte[] k = hkdf(cat(dh(eph, r), dh(sender, r)), salt, cat(MSG_INFO, id, senderRaw, ephRaw, r));
+                out.write(cat(tag(r), ephRaw, salt, gcm(javax.crypto.Cipher.ENCRYPT_MODE, k, new byte[12], key)));
+            }
+            byte[] plain = json.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            out.write(gcm(javax.crypto.Cipher.ENCRYPT_MODE, key, nonce(id, 0, true, true), Arrays.copyOf(plain, Math.max(256, (plain.length + 1 + 63) / 64 * 64))));
+            return out.toByteArray();
+        }
+
+        static String openMessage(byte[] b, java.security.KeyPair me) throws Exception {
+            byte[] id = Arrays.copyOfRange(b, 4, 4 + ID), senderRaw = Arrays.copyOfRange(b, 4 + ID, 4 + ID + 65), myRaw = raw(me), myTag = tag(myRaw);
+            int count = b[4 + ID + 65] & 0xFF, start = 4 + ID + 66;
+            for (int i = 0; i < count; i++) {
+                int at = start + i * ENTRY;
+                if (!Arrays.equals(Arrays.copyOfRange(b, at, at + 8), myTag)) continue;
+                byte[] ephRaw = Arrays.copyOfRange(b, at + 8, at + 73), salt = Arrays.copyOfRange(b, at + 73, at + 89);
+                byte[] k = hkdf(cat(dh(me, ephRaw), dh(me, senderRaw)), salt, cat(MSG_INFO, id, senderRaw, ephRaw, myRaw));
+                byte[] key = gcm(javax.crypto.Cipher.DECRYPT_MODE, k, new byte[12], Arrays.copyOfRange(b, at + 89, at + ENTRY));
+                return new String(gcm(javax.crypto.Cipher.DECRYPT_MODE, key, nonce(id, 0, true, true), Arrays.copyOfRange(b, start + count * ENTRY, b.length)),
+                        java.nio.charset.StandardCharsets.UTF_8).replace("\u0000", "");
+            }
+            throw new IOException("not for this key");
+        }
+
+        private static final byte[] MSG_INFO = "rooftop chat v1 wrap".getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
         static String tryOpen(byte[] blob, java.security.KeyPair me) {
             try {

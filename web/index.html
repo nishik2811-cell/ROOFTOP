@@ -90,6 +90,7 @@
     </nav>
 
     <p class="toast" id="toast" role="status" aria-live="polite"></p>
+    <button class="city-bubble" type="button" id="cityBubble" hidden></button>
 
     <aside class="tray" id="tray" aria-label="Files being sent" hidden>
       <div class="tray-head">
@@ -123,6 +124,7 @@
         <select id="sendTo" aria-label="Who gets the files and text you send"><option value="*">Everyone</option></select>
         <svg class="i to-caret" aria-hidden="true"><use href="#i-right"/></svg>
       </label>
+      <button class="round" type="button" id="sendToChat" aria-label="Chat with this person" hidden><svg class="i"><use href="#i-chat"/></svg></button>
       <button class="round" type="button" id="themeBtn" aria-label="Switch day and night" aria-pressed="false"><svg class="i"><use href="#i-sun"/></svg></button>
     </div>
   </section>
@@ -154,9 +156,12 @@
     </section>
 
     <section class="host-card">
-      <h2>Chat</h2>
+      <h2>Chat <span class="count" id="hostChatUnread"></span></h2>
+      <p class="empty">End-to-end encrypted: this page decrypts messages for this PC, and puts ones sent to Everyone or to this PC on its clipboard.</p>
+      <button class="session-btn" type="button" id="hostOpenChat">Open chat</button>
+      <h2 class="sub-h">From other PCs</h2>
       <ul class="host-messages" id="hostMessages" aria-live="polite"></ul>
-      <p class="empty" id="hostMessagesEmpty">Messages appear here. Ones sent to Everyone or to this PC also land on its clipboard.</p>
+      <p class="empty" id="hostMessagesEmpty">Text sent from another PC's terminal appears here and on the clipboard.</p>
     </section>
 
     <section class="host-card">
@@ -196,23 +201,48 @@
   </div>
 </dialog>
 
-<dialog class="sheet sheet-chat" id="sheet-notes" aria-labelledby="notes-title">
-  <div class="sheet-inner">
-    <header class="sheet-head">
-      <h2 id="notes-title">Chat</h2>
-      <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
-    </header>
-    <ul class="chat" id="textList" aria-live="polite"></ul>
-    <p class="empty" id="textEmpty">No messages yet. Messages to Everyone also land on the PC's clipboard.</p>
-    <form class="field chat-form" id="noteForm" novalidate>
-      <label for="note">Message to <select id="chatTo" aria-label="Who gets this message"><option value="*">Everyone</option></select></label>
-      <textarea id="note" rows="2" placeholder="A link, a code, an address"></textarea>
-      <p class="error" id="noteError" role="alert"></p>
-      <div class="btn-row">
+<dialog class="sheet sheet-chat" id="sheet-notes" aria-labelledby="notes-title" data-pane="list">
+  <div class="chat-wrap">
+    <section class="convs active" id="convPane" aria-label="Conversations">
+      <header class="sheet-head">
+        <h2 id="notes-title">Chat</h2>
+        <button class="btn btn-small" type="button" id="newGroupBtn">New group</button>
+        <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+      </header>
+      <p class="empty" id="chatNoKey" hidden>This browser cannot encrypt, so it cannot chat. Try a current Chrome, Safari or Firefox.</p>
+      <ul class="conv-list" id="convList"></ul>
+      <p class="empty chat-note"><svg class="i"><use href="#i-lock"/></svg> End-to-end encrypted. The PC only passes sealed messages along.</p>
+    </section>
+    <section class="thread" id="threadPane" aria-labelledby="threadTitle">
+      <header class="thread-head">
+        <button class="icon-btn" type="button" id="threadBack" aria-label="All conversations"><svg class="i"><use href="#i-left"/></svg></button>
+        <span id="threadFace"></span>
+        <div class="thread-title"><h3 id="threadTitle"></h3><p id="threadSub"></p></div>
+        <button class="btn btn-small" type="button" id="leaveGroup" hidden>Leave</button>
+        <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+      </header>
+      <ul class="chat" id="textList" aria-live="polite"></ul>
+      <p class="empty" id="textEmpty">No messages yet. Say hello.</p>
+      <p class="typing" id="typingLine" aria-live="polite"></p>
+      <form class="chat-form" id="noteForm" novalidate>
+        <textarea id="note" rows="1" placeholder="Message" aria-label="Message"></textarea>
         <button class="btn btn-primary" type="submit">Send</button>
-        <button class="btn" type="button" id="pullClip">Get PC clipboard</button>
-      </div>
-    </form>
+        <p class="error" id="noteError" role="alert"></p>
+      </form>
+    </section>
+    <section class="group-new" id="groupPane" hidden aria-labelledby="group-title">
+      <header class="thread-head">
+        <button class="icon-btn" type="button" id="groupBack" aria-label="Back"><svg class="i"><use href="#i-left"/></svg></button>
+        <h3 id="group-title">New group</h3>
+      </header>
+      <form class="name-form group-form" id="groupForm" novalidate>
+        <label for="groupName">Group name</label>
+        <input id="groupName" maxlength="40" autocomplete="off" placeholder="e.g. Saturday trip">
+        <fieldset id="groupPeople"></fieldset>
+        <p class="error" id="groupError" role="alert"></p>
+        <button class="btn btn-primary" type="submit">Create group</button>
+      </form>
+    </section>
   </div>
 </dialog>
 

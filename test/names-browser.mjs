@@ -70,21 +70,27 @@ await gate(P2).waitFor({ state: 'hidden' });
 check(true, 'and the second phone joins as "asha 2"');
 
 // 2. Asha says hello; the PC and the second phone see her name and initials
-await P1.click('#chatBtn');
+const openEveryone = async (p) => {
+  if (!(await p.evaluate(() => document.querySelector('#sheet-notes').open))) await p.click('#chatBtn');
+  if (await p.locator('#threadBack').isVisible()) await p.click('#threadBack');
+  await p.locator('#convList .conv').filter({ has: p.locator('.conv-name', { hasText: 'Everyone' }) }).click();
+};
+await P1.waitForTimeout(3500); // everyone has seen everyone's key
+await openEveryone(P1);
 await P1.fill('#note', 'hello from Asha');
 await P1.press('#note', 'Enter');
-await P1.click('#noteForm button[type=submit]').catch(() => {}); // phones keep Enter for new lines
-await A.waitForTimeout(3500);
-await P2.waitForTimeout(500);
-await P2.click('#chatBtn');
-await P2.waitForSelector('#textList .msg .msg-who', { timeout: 10000 });
-const seenOnP2 = await P2.$$eval('#textList .msg.first', (m) => m.map((x) => [x.querySelector('.avatar')?.textContent, x.querySelector('.msg-who')?.textContent, x.querySelector('.bubble')?.textContent]));
+await openEveryone(P2);
+await P2.locator('#textList .bubble', { hasText: 'hello from Asha' }).waitFor({ timeout: 12000 });
+const seenOnP2 = await P2.$$eval('#textList .msg.first', (m) => m.map((x) => [x.querySelector('.avatar')?.textContent, x.querySelector('.msg-who')?.firstChild?.textContent, x.querySelector('.bubble')?.textContent]));
 check(seenOnP2.some(([a, who, text]) => a === 'AS' && who === 'Asha' && text === 'hello from Asha'), 'the second phone sees "Asha" with her initials above her message: ' + JSON.stringify(seenOnP2));
-const seenOnA = await A.$$eval('#hostMessages li', (m) => m.map((x) => [x.querySelector('.avatar')?.textContent, x.querySelector('.meta')?.textContent]));
+await openEveryone(A);
+await A.locator('#textList .bubble', { hasText: 'hello from Asha' }).waitFor({ timeout: 12000 });
+const seenOnA = await A.$$eval('#textList .msg.first', (m) => m.map((x) => [x.querySelector('.avatar')?.textContent, x.querySelector('.msg-who')?.textContent]));
 check(seenOnA.some(([a, meta]) => a === 'AS' && meta.startsWith('Asha')), 'the PC sees her message with her initials and name');
+await A.keyboard.press('Escape');
 check((await sendToTexts(A)).some((t) => t.startsWith('AS · Asha')), "the PC's Send to lists \"AS · Asha\"");
 check((await sendToTexts(P2)).some((t) => t.startsWith('AS · Asha')) && (await sendToTexts(P2)).some((t) => t.includes(pcName)), 'the second phone\'s Send to lists Asha and the PC');
-const color1 = await P2.$eval('#textList .msg.first .avatar', (a) => a.style.background);
+const color1 = await P2.$$eval('#textList .msg.first', (m) => m.find((x) => x.textContent.includes('hello from Asha')).querySelector('.avatar').style.background);
 await P2.keyboard.press('Escape');
 await P2.click('[data-sheet="nearby"]');
 const colorNearby = await P2.$$eval('#deviceList li', (l) => l.filter((x) => x.textContent.includes('Asha')).map((x) => x.querySelector('.avatar').style.background)[0]);

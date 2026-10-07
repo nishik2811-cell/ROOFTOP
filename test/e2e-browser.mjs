@@ -16,7 +16,8 @@ const inboxDir = process.env.ROOFTOP_INBOX || join(homedir(), 'Rooftop');
 const logFile = process.env.ROOFTOP_LOG;
 let failures = 0;
 const check = (ok, what) => { console.log((ok ? 'ok    ' : 'FAIL  ') + what); if (!ok) failures++; };
-const sealedFiles = () => (existsSync(sealedDir) ? readdirSync(sealedDir) : []);
+const leftover = new Set(existsSync(sealedDir) ? readdirSync(sealedDir) : []); // left by other runs; they expire on their own
+const sealedFiles = () => (existsSync(sealedDir) ? readdirSync(sealedDir) : []).filter((f) => !leftover.has(f));
 
 const connect = await (await fetch('http://localhost:8080/api/connect')).json();
 const lan = connect.url; // the phone link, PIN included
@@ -30,6 +31,12 @@ const allName = `b-to-everyone-${stamp}.bin`;
 const forAll = randomBytes(2 * 1024 * 1024 + 123);
 writeFileSync(join(work, allName), forAll);
 
+// wait until no other browser is connected, so "Everyone" means exactly the pages below
+for (let i = 0; i < 30; i++) {
+  const s = await (await fetch('http://localhost:8080/api/state')).json();
+  if (!s.devices.some((d) => d.kind !== 'PC')) break;
+  await new Promise((r) => setTimeout(r, 1000));
+}
 const browser = await chromium.launch({ args: ['--proxy-server=direct://', '--proxy-bypass-list=*'] });
 const errors = [];
 async function page(url, name, noCrypto = false) {

@@ -202,5 +202,64 @@
     return { details, senderRaw, parts };
   }
 
-  root.RooftopE2E = { newKeyPair, publicRaw, safetyCode, seal, open, paddedSize, b64, unb64, CHUNK };
+  /*
+   * Chat messages, typing signals and group changes: "RTM1" | id (7) | senderPublicKey (65) | recipientCount (u8) |
+   * recipient entries (as above) | AES-256-GCM of the JSON, zero-padded to at least 256 bytes, then to a multiple of 64. A fresh message key
+   * every time, wrapped for each recipient the same way as a file key.
+   */
+  const MSG_MAGIC = [0x52, 0x54, 0x4d, 0x31]; // "RTM1"
+  const MSG_INFO = new TextEncoder().encode('rooftop chat v1 wrap');
+  const MSG_PAD = 64;
+  const MSG_MIN = 256; // most messages, every typing signal and group change come out the same size
+
+  async function sealMessage(body, recipients, sender) {
+    if (!recipients.length || recipients.length > 255) throw new Error('between 1 and 255 recipients');
+    const id = root.crypto.getRandomValues(new Uint8Array(ID));
+    const rawKey = root.crypto.getRandomValues(new Uint8Array(32));
+    const key = await subtle.importKey('raw', rawKey, 'AES-GCM', false, ['encrypt']);
+    const senderRaw = await publicRaw(sender);
+    const entries = [];
+    for (const r of recipients) {
+      const eph = await subtle.generateKey(ECDH, false, ['deriveBits']);
+      const ephRaw = await publicRaw(eph);
+      const salt = root.crypto.getRandomValues(new Uint8Array(16));
+      const k = await wrapKey(await dh(eph.privateKey, r), await dh(sender.privateKey, r), salt, concat(MSG_INFO, id, senderRaw, ephRaw, r));
+      entries.push(concat(await keyTag(r), ephRaw, salt, new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv: new Uint8Array(12) }, k, rawKey))));
+    }
+    rawKey.fill(0);
+    const json = new TextEncoder().encode(JSON.stringify(body));
+    const padded = concat(json, new Uint8Array(Math.max(MSG_MIN, Math.ceil((json.length + 1) / MSG_PAD) * MSG_PAD) - json.length));
+    const sealed = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv: nonce(id, 0, true, true) }, key, padded));
+    return concat(Uint8Array.from(MSG_MAGIC), id, senderRaw, Uint8Array.of(entries.length), ...entries, sealed);
+  }
+
+  /** Returns { body, senderRaw, id } or throws (not for this key, swapped sender key, anything changed). */
+  async function openMessage(bytes, pair) {
+    if (bytes.length < 4 + ID + 66 || MSG_MAGIC.some((b, i) => bytes[i] !== b)) throw new Error('not a sealed message');
+    const id = bytes.slice(4, 4 + ID), senderRaw = bytes.slice(4 + ID, 4 + ID + 65), count = bytes[4 + ID + 65];
+    const start = 4 + ID + 66;
+    if (bytes.length < start + count * ENTRY + TAG) throw new Error('cut off');
+    const myRaw = await publicRaw(pair);
+    const myTag = await keyTag(myRaw);
+    for (let i = 0; i < count; i++) {
+      const e = bytes.slice(start + i * ENTRY, start + (i + 1) * ENTRY);
+      if (!same(e.slice(0, 8), myTag)) continue;
+      const ephRaw = e.slice(8, 73), salt = e.slice(73, 89);
+      const k = await wrapKey(await dh(pair.privateKey, ephRaw), await dh(pair.privateKey, senderRaw), salt, concat(MSG_INFO, id, senderRaw, ephRaw, myRaw));
+      let raw;
+      try {
+        raw = new Uint8Array(await subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(12) }, k, e.slice(89)));
+      } catch {
+        throw new Error('the sender\u2019s key does not match: it was swapped or damaged on the way');
+      }
+      const key = await subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+      raw.fill(0);
+      const json = new Uint8Array(await subtle.decrypt({ name: 'AES-GCM', iv: nonce(id, 0, true, true) }, key, bytes.slice(start + count * ENTRY)));
+      const end = json.indexOf(0);
+      return { body: JSON.parse(new TextDecoder().decode(end >= 0 ? json.slice(0, end) : json)), senderRaw, id: b64(id) };
+    }
+    throw new Error('this message was not sealed for this device');
+  }
+
+  root.RooftopE2E = { newKeyPair, publicRaw, safetyCode, seal, open, sealMessage, openMessage, paddedSize, b64, unb64, CHUNK };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -28,6 +28,7 @@ public class Rooftop {
     private final PinGuard pins = new PinGuard();
     private final ActivityLog log = new ActivityLog();
     private final History history = new History();
+    private final rooftop.model.ChatBox chat = new rooftop.model.ChatBox();
     private volatile String session = newSessionId(); // browsers make a new end-to-end key whenever this changes
     private final SendQueue sendQueue = new SendQueue(this);
     private final WebServer web = new WebServer(this);
@@ -101,6 +102,7 @@ public class Rooftop {
         int files = inbox.newSession();
         sealed.clear();
         history.clear();
+        chat.clear();
         me.clearPublicKey();
         session = newSessionId();
         log.add("new session: PIN " + pins.pin() + ", " + phones + " phone(s) disconnected, " + files + " file(s) removed");
@@ -140,6 +142,10 @@ public class Rooftop {
 
     public String session() {
         return session;
+    }
+
+    public rooftop.model.ChatBox chat() {
+        return chat;
     }
 
     public History history() {

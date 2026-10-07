@@ -17,7 +17,7 @@ Made by **Nishita, Aryan and Keshav**.
 - **Reliable transfers:** big files go in pieces, so a dropped Wi-Fi resumes instead of starting over; failed sends retry automatically; PC-to-PC files are checked with SHA-256.
 - **Smarter sending:** pick as many files as you like, any time. Three move at once, small ones go first (a big file never waits more than 20 s behind them), and each can be cancelled or retried. A tray shows live speed, time left and a speed graph.
 - **Compression only when it helps:** text-like files are packed on the way (in the browser, or between PCs) if a sample actually shrinks; photos, videos and archives are sent as they are.
-- **Chat** between all devices, to everyone or to one device, with an unread dot.
+- **Chat, end-to-end encrypted:** a room chat for everyone, personal chats, and named groups anyone can start. Unread counts, "is typing…", clickable links, and a speech bubble over the city when a message comes in. Messages to Everyone or to the PC also land on the PC's clipboard. Everything is cleared when the session ends.
 - **Custom names** for every phone and PC, remembered across restarts.
 - **History** of every file sent and received in the session, with speed, also after the file is removed.
 - **Notifications** when a file or message arrives while Rooftop is in the background (and a count in the tab title).
@@ -97,12 +97,13 @@ Other folders:
 | Area | Protection |
 |---|---|
 | Files between browsers | End to end, every file, to one device or to everyone (details below) |
-| Phone ↔ host | HTTPS (TLS 1.3) with a certificate generated on first run; chat messages and the page itself travel this way |
+| Chat | End to end, like the files: every message, typing signal, group name and group change is sealed in the sender's browser with a fresh AES-256-GCM key, wrapped for each recipient's session key (one-time ECDH + the sender's key, HKDF), so only the people in that conversation can read it and a swapped sender key is caught. Padded to at least 256 bytes, then to multiples of 64. The PC keeps only sealed envelopes in memory, with a number, the sender's id, the recipient ids, the size and the time, and clears them at session end. Conversations between other devices never show up on the PC. The PC's clipboard gets messages only through its own page, which decrypts them |
+| Phone ↔ host | HTTPS (TLS 1.3) with a certificate generated on first run; the page itself and the sealed files and messages travel this way |
 | PC ↔ PC | Fresh ECDH (P-256) key per transfer and SPAKE2 (RFC 9382) with the receiving PC's PIN, bound together over the whole handshake; both sides prove they got the same keys before any data, so a wrong PIN or a man in the middle fails right away and counts as a wrong try. Both terminals show the same safety code. Then AES-256-GCM on every chunk; tampering stops the transfer |
 | Access | Random 6-digit PIN per run (no palindromes); 10 wrong tries blocks that device |
 | File names | `../../x` becomes `x`; duplicates become `name (2).ext`; half-received files are deleted |
 | Downloads | Served with `Content-Security-Policy: sandbox` and `nosniff` |
-| Browser keys | A new ECDH P-256 key pair per session in every browser (phones and the PC's own page); the private half is non-extractable and stays in IndexedDB. A device without a key is shown as such and is never sent a file |
+| Browser keys | A new ECDH P-256 key pair per session in every browser (phones and the PC's own page); the private half is non-extractable and stays in IndexedDB. A device without a key is shown as such and is never sent a file or a message |
 | Sealing | A fresh random AES-256-GCM key and a random id per file; 1 MB chunks whose nonce is the file id, a "last chunk" flag and the chunk number, so nothing can be reordered or cut off. The file name travels encrypted. The file key is wrapped separately for each recipient with HKDF-SHA-256 over two ECDH results (a one-time key with the recipient's key, and the sender's key with the recipient's key), so a swapped sender key fails to open. Sizes are padded (to 64 KB, then to a sixteenth of the nearest power of two) |
 | On the PC | Only ciphertext with the wrapped keys, in a hidden temp folder, never in the inbox. It remembers only the transfer id, the recipient ids, the padded size and the arrival time. Transfers between other devices never show up in its page, city, inbox, history, log or terminal. It deletes the bytes and the record after the last recipient's acknowledgement, at session end, or after 1 hour. Files for the PC are opened by the PC's own page and saved into its inbox |
 | Verification | A 6-digit safety code from both public keys, and a QR code with a 120-bit key fingerprint that another device scans to mark the key verified (remembered per key) |
@@ -110,9 +111,9 @@ Other folders:
 
 **Known limits:**
 - Browsers load Rooftop's code from the host, so a host running modified code could serve a page that leaks keys or files. The safety code and the QR check catch a swapped key, not a swapped page.
-- The host sees that transfers happen: their padded size, their timing, and who sends to whom. It cannot read them.
-- The certificate is self-signed, so an attacker on the same Wi-Fi who can redirect traffic could pose as the host; passive sniffing sees nothing useful. Verifying keys protects files even then.
-- Chat messages are protected by HTTPS on the way and readable by the host, not end to end.
+- The host sees that transfers and messages happen: their padded size, their timing, and who sends to whom. It cannot read them. Typing signals are kept only a few seconds, so the host can tell them apart from messages.
+- The certificate is self-signed, so an attacker on the same Wi-Fi who can redirect traffic could pose as the host; passive sniffing sees nothing useful. Verifying keys protects files and messages even then.
+- Texts sent with the terminal `text` command between two PCs are encrypted on the way (PIN-checked) and readable on the receiving PC, like files that land there.
 - Files compressed before sealing can reveal how well they compress, through their padded size.
 - Files that land on the PC (sent to it, to everyone, or from another PC) are stored there unencrypted, like any download.
 - A PC only receives end-to-end files while its own page (`http://localhost:8080`) is open. Two PCs need this version on both sides to talk to each other.
@@ -139,7 +140,10 @@ Type these in the window where Rooftop runs:
 ```bash
 java src/rooftop/SelfTest.java      # PIN, file names, encryption, tamper checks, sealed storage, PC-to-PC PIN handshake
 java src/rooftop/Benchmark.java     # transfer speed on this PC
-ROOFTOP_LOG=rooftop.log node test/e2e-browser.mjs   # with Rooftop running (output saved to rooftop.log): three browsers, end to end (needs: npm i -D playwright)
+# with Rooftop running and its output saved to rooftop.log (the browser checks need: npm i -D playwright)
+ROOFTOP_LOG=rooftop.log node test/e2e-browser.mjs    # files end to end: three browsers
+ROOFTOP_LOG=rooftop.log node test/chat-browser.mjs   # chat end to end: the PC's page and three phones
+node test/names-browser.mjs                          # the name screen
 ```
 
 For real Wi-Fi speed, run `java src/rooftop/Benchmark.java serve` on one PC and `java src/rooftop/Benchmark.java to <ip>` on another.

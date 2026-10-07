@@ -1252,6 +1252,7 @@ async function refresh() {
     renderSheets();
     syncName();
     maybeAskName();
+    if (next.chatSeq !== chatLatest || next.session !== chatSession) loadChat();
     registerKey();
     offerSealed(next.sealed || []);
   } catch (e) {
@@ -1270,9 +1271,9 @@ function arrival(files) {
 }
 
 /** Pops the "incoming transmission" card for a message from another device, unless the chat is open anyway. */
-function announceText(texts) {
+function announceText(texts) { // texts are messages from other PCs (the terminal "text" command); only this PC sees them
   const newest = texts.find((t) => !t.mine);
-  if (lastTextAt !== null && newest && newest.at > lastTextAt && !$('#sheet-notes').open) transmission(null, newest);
+  if (lastTextAt !== null && newest && newest.at > lastTextAt) transmission(null, newest);
   if (newest) lastTextAt = Math.max(lastTextAt || 0, newest.at);
   else if (lastTextAt === null) lastTextAt = 0;
 }
@@ -1401,8 +1402,7 @@ function renderRecipients(force = false) {
   // files: only devices with a key can be picked, and each says whether its key has been verified
   const files = [['*', 'Everyone', false], ...people.map((d) => [d.id,
     `${initials(d.name)} · ${d.name}${d.pc ? ' (PC)' : ''}${d.key ? (isVerified(d.key) ? ' ✓ verified' : ' · not verified') : d.pc ? ' · PC page closed' : ' · no key yet'}`, !d.key])];
-  const chat = [['*', 'Everyone', false], ...people.map((d) => [d.id, `${initials(d.name)} · ${d.name}${d.pc ? ' (PC)' : ''}`, false])];
-  for (const [select, options] of [[$('#sendTo'), files], [$('#chatTo'), chat]]) {
+  for (const [select, options] of [[$('#sendTo'), files]]) {
     const key = JSON.stringify(options);
     if (select.dataset.key === key && !force) continue; // rebuilding an open dropdown would close it
     const keep = select.value;
@@ -1410,6 +1410,7 @@ function renderRecipients(force = false) {
     select.value = options.some(([v, , off]) => v === keep && !off) ? keep : '*';
     select.dataset.key = key;
   }
+  $('#sendToChat').hidden = $('#sendTo').value === '*';
 }
 
 /* ---- avatars: initials in a colour that belongs to the device ---- */
@@ -2115,7 +2116,7 @@ function renderSheets() {
   }));
   $('#fileEmpty').hidden = state.files.length > 0;
 
-  renderChat();
+  renderChatAll();
 
   $('.you').hidden = state.local;
   $('#nameForm').hidden = state.local;
@@ -2123,7 +2124,9 @@ function renderSheets() {
   if (document.activeElement !== $('#myName')) $('#myName').value = local.get('rooftop-name') || '';
   $('#pcName').textContent = state.me || 'the PC';
   $('#deviceList').replaceChildren(...state.devices.map((d) => {
-    return el('li', {}, avatar(d), el('span', { className: 'dev-name', textContent: d.name }), el('span', { className: 'kind', textContent: d.kind }));
+    const li = el('li', { className: d.kind === 'PC' ? '' : 'tap' }, avatar(d), el('span', { className: 'dev-name', textContent: d.name }), el('span', { className: 'kind', textContent: d.kind }));
+    if (d.kind !== 'PC') { li.dataset.id = d.id; li.title = `Chat with ${d.name}`; }
+    return li;
   }));
   $('#deviceList').hidden = !state.devices.length;
   $('#deviceEmpty').hidden = state.devices.length > 0;
@@ -2216,92 +2219,418 @@ $('#newSession').addEventListener('click', async () => {
   }
 });
 
-/* ---- text and clipboard ---- */
+/* ---- chat: conversations sealed end to end, like the files ----
+   Everyone (the room), one personal chat per person, and named groups. Every message, typing signal and group change
+   is sealed here for each recipient's session key; the PC only relays ciphertext. Conversations exist only in the
+   browsers: the PC sees envelopes, never which conversation they belong to or what they say. */
+const convs = new Map();   // id -> { id, kind: 'all' | 'p' | 'g', name, peer, members: Set, msgs: [], lastAt }
+const typing = new Map();  // conversation id -> Map(sender id -> until)
+let chatCursor = 0, chatLatest = -1, chatSession = '', chatBusy = null, chatLoaded = false, openConv = null, chatWarned = 0, lastTypingSent = 0, pendingClip = null;
+let chatRead = JSON.parse(session.get('rooftop-chat-read') || '{}'); // conversation id -> last seq read
+const LINK = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g;
+
+function conv(id) {
+  if (!convs.has(id)) {
+    if (id === 'all') convs.set(id, { id, kind: 'all', name: 'Everyone', msgs: [], lastAt: 0 });
+    else if (id.startsWith('p:')) convs.set(id, { id, kind: 'p', peer: id.slice(2), msgs: [], lastAt: 0 });
+    else return null; // groups exist only once someone told us about them
+  }
+  return convs.get(id);
+}
+const person = (id) => (id === state.youId ? { id, name: state.local ? state.me : state.you, key: myKey }
+  : id === state.meId ? { id, name: state.me, key: state.meKey || '' }
+  : (({ name, key }) => ({ id, name, key }))(state.devices.find((d) => d.id === id) || { name: 'someone who left', key: '' }));
+const convName = (c) => (c.kind === 'p' ? person(c.peer).name : c.name);
+
+/** Everyone who gets a message in this conversation, as { id, key }: only devices with a key, this one included. */
+function chatRecipients(c, withMe = true) {
+  let ids;
+  if (c.kind === 'all') ids = [...state.devices.filter((d) => d.kind !== 'PC').map((d) => d.id), ...(state.local ? [] : [state.meId])];
+  else if (c.kind === 'p') ids = [c.peer];
+  else ids = [...c.members].filter((id) => id !== state.youId);
+  const out = ids.map(person).filter((p) => p.key);
+  if (withMe && myKey) out.push({ id: state.youId, key: myKey });
+  return out;
+}
+
+async function sendEnvelope(body, c, ttl = 0, withMe = true) {
+  const to = chatRecipients(c, withMe);
+  if (!to.length || (to.length === 1 && to[0].id === state.youId && c.kind !== 'g')) throw new Error(`${convName(c)} cannot receive encrypted chat yet`);
+  const bytes = await E2E.sealMessage(body, to.map((r) => E2E.unb64(r.key)), myPair);
+  await call(`/api/chat/send?to=${encodeURIComponent(to.map((r) => r.id).join(','))}&ttl=${ttl}`, { method: 'POST', body: bytes });
+}
+
+const wireConv = (c) => (c.kind === 'all' ? { c: 'all' } : c.kind === 'p' ? { c: 'p', to: c.peer } : { c: c.id });
+
+async function loadChat() {
+  if (!E2E || !myPair || !state.session) return;
+  if (chatBusy) return chatBusy;
+  chatBusy = (async () => {
+    try {
+      if (chatSession !== state.session) { // a new session: every conversation is gone, on the PC and here
+        convs.clear();
+        typing.clear();
+        chatCursor = 0;
+        chatRead = {};
+        openConv = null;
+        chatLoaded = false;
+        chatSession = state.session;
+      }
+      const res = await (await call('/api/chat?after=' + chatCursor)).json();
+      chatLatest = res.latest;
+      for (const env of res.envelopes) {
+        chatCursor = Math.max(chatCursor, env.seq);
+        await receiveEnvelope(env);
+      }
+      chatLoaded = true;
+    } catch { /* next poll */ } finally {
+      chatBusy = null;
+    }
+    renderChatAll();
+  })();
+  return chatBusy;
+}
+
+async function receiveEnvelope(env) {
+  let out;
+  try {
+    out = await E2E.openMessage(E2E.unb64(env.data), myPair);
+  } catch (e) {
+    if (/swapped/.test(e.message)) chatWarning(env.from);
+    return;
+  }
+  // the PC says who sent it; the key inside must be that device's key, or someone is pretending
+  const senderKey = E2E.b64(out.senderRaw);
+  const expected = person(env.from).key;
+  if (!expected || senderKey !== expected) { chatWarning(env.from); return; }
+  const b = out.body, from = env.from, mine = from === state.youId, live = chatLoaded;
+  const cid = b.c === 'all' ? 'all' : b.c === 'p' ? 'p:' + (mine ? b.to : from) : b.c;
+  if (b.k === 'group') {
+    if (!b.m.includes(state.youId)) { convs.delete('g:' + b.g); return; }
+    convs.set('g:' + b.g, { ...(convs.get('g:' + b.g) || { msgs: [], lastAt: env.at }), id: 'g:' + b.g, kind: 'g', name: String(b.n).slice(0, 40), members: new Set(b.m), by: from });
+    const g = convs.get('g:' + b.g);
+    g.msgs.push({ system: true, seq: env.seq, at: env.at, text: mine ? `You made the group "${g.name}"` : `${person(from).name} added you to "${g.name}"` });
+    g.lastAt = Math.max(g.lastAt, env.at);
+    return;
+  }
+  if (b.k === 'leave') {
+    const g = convs.get('g:' + b.g);
+    if (!g) return;
+    if (mine) { convs.delete(g.id); if (openConv === g.id) openConv = null; return; }
+    g.members.delete(from);
+    g.msgs.push({ system: true, seq: env.seq, at: env.at, text: `${person(from).name} left` });
+    return;
+  }
+  const c = conv(cid);
+  if (!c || (c.kind === 'g' && !c.members.has(from))) return; // not a conversation we are in
+  if (b.k === 'typing') {
+    if (!mine && live) {
+      if (!typing.has(cid)) typing.set(cid, new Map());
+      typing.get(cid).set(from, Date.now() + 5000);
+    }
+    return;
+  }
+  if (b.k !== 'msg' || typeof b.t !== 'string') return;
+  const msg = { id: out.id, seq: env.seq, at: env.at, from, mine, text: b.t.slice(0, 8000), verified: isVerified(senderKey) };
+  c.msgs.push(msg);
+  c.lastAt = Math.max(c.lastAt, env.at);
+  typing.get(cid)?.delete(from);
+  if (mine || !live) return;
+  const looking = $('#sheet-notes').open && openConv === cid && !document.hidden;
+  if (looking) markConvRead(c);
+  else {
+    popBubble(c, msg);
+    notify(c.kind === 'p' ? person(from).name : `${person(from).name} in ${convName(c)}`, msg.text);
+  }
+  // this PC's clipboard: messages for the PC (to everyone, or to it in person) land there, decrypted by this page only
+  if (state.local && (c.kind === 'all' || c.kind === 'p')) putOnClipboard(msg.text);
+}
+
+function chatWarning(from) {
+  chatWarned++;
+  const c = conv('all');
+  c.msgs.push({ system: true, warn: true, seq: chatCursor, at: Date.now(), text: `A message said to be from ${person(from).name} could not be verified and was thrown away. Someone may be tampering.` });
+}
+
+async function putOnClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    pendingClip = null;
+  } catch {
+    pendingClip = text; // the browser only allows it while this page has focus
+  }
+}
+window.addEventListener('focus', () => { if (pendingClip) putOnClipboard(pendingClip); });
+
+function unreadIn(c) {
+  const seen = chatRead[c.id] || 0;
+  return c.msgs.filter((m) => !m.mine && !m.system && m.seq > seen).length;
+}
+function markConvRead(c) {
+  const top = c.msgs.reduce((a, m) => Math.max(a, m.seq || 0), 0);
+  if (top > (chatRead[c.id] || 0)) { chatRead[c.id] = top; session.set('rooftop-chat-read', JSON.stringify(chatRead)); }
+}
+
+/* ---- the city bubble: a new message where nobody is looking ---- */
+let bubbleTimer = 0;
+function popBubble(c, msg) {
+  const b = $('#cityBubble');
+  b.replaceChildren(avatar(person(msg.from)), el('span', { className: 'cb-text' },
+    el('b', { textContent: c.kind === 'p' ? person(msg.from).name : `${person(msg.from).name} · ${convName(c)}` }),
+    el('span', { textContent: msg.text.length > 70 ? msg.text.slice(0, 68) + '…' : msg.text })));
+  b.dataset.conv = c.id;
+  b.dataset.msg = msg.id;
+  b.hidden = false;
+  b.classList.remove('pop');
+  void b.offsetWidth;
+  b.classList.add('pop');
+  clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => { b.hidden = true; }, 6000);
+}
+$('#cityBubble').addEventListener('click', (e) => {
+  const b = e.currentTarget;
+  b.hidden = true;
+  openChat(b.dataset.conv, b.dataset.msg);
+});
+
+/* ---- the chat sheet: a switcher, a conversation, and a "new group" form ---- */
+function showPane(name) {
+  $('#convPane').classList.toggle('active', name === 'list');
+  $('#threadPane').classList.toggle('active', name === 'thread');
+  $('#groupPane').hidden = name !== 'group';
+  $('#sheet-notes').dataset.pane = name;
+}
+
+function openChat(cid, msgId) {
+  const d = $('#sheet-notes');
+  if (!d.open) { renderSheets(); d.showModal(); }
+  if (cid) {
+    const c = cid.startsWith('g:') ? convs.get(cid) : conv(cid);
+    if (c) {
+      openConv = cid;
+      markConvRead(c);
+      showPane('thread');
+      renderChatAll();
+      requestAnimationFrame(() => {
+        const target = msgId && $(`#textList [data-id="${CSS.escape(msgId)}"]`);
+        if (target) { target.scrollIntoView({ block: 'center' }); target.classList.add('flash'); }
+        else $('#textList').scrollTop = $('#textList').scrollHeight;
+        if (matchMedia('(pointer: fine)').matches) $('#note').focus();
+      });
+      return;
+    }
+  }
+  openConv = null;
+  showPane('list');
+  renderChatAll();
+}
+document.querySelector('[data-sheet="notes"]').addEventListener('click', () => {
+  if (openConv && matchMedia('(min-width: 768px)').matches) openChat(openConv); else openChat(null);
+});
+$('#threadBack').addEventListener('click', () => { openConv = null; showPane('list'); renderChatAll(); });
+$('#sheet-notes').addEventListener('close', () => { if (!matchMedia('(min-width: 768px)').matches) openConv = null; });
+
+function renderChatAll() {
+  renderConvList();
+  renderThread();
+  const unread = [...convs.values()].reduce((a, c) => a + unreadIn(c), 0);
+  $('#chatDot').hidden = !unread;
+  $('#chatDot').textContent = unread > 9 ? '9+' : unread || '';
+  $('#chatBtn').setAttribute('aria-label', unread ? `Chat, ${unread} unread` : 'Chat');
+  const forHost = $('#hostChatUnread');
+  if (forHost) forHost.textContent = unread ? `${unread} unread` : '';
+}
+
+function convFace(c) {
+  if (c.kind === 'all') { const a = el('span', { className: 'avatar all', textContent: 'ALL' }); a.setAttribute('aria-hidden', 'true'); return a; }
+  if (c.kind === 'g') return avatar({ id: c.id, name: c.name });
+  return avatar(person(c.peer));
+}
+
+function renderConvList() {
+  const list = $('#convList');
+  const can = !!(E2E && myKey);
+  $('#chatNoKey').hidden = can;
+  $('#newGroupBtn').hidden = !can;
+  if (!can) { list.replaceChildren(); return; }
+  conv('all');
+  const byRecent = (a, b) => b.lastAt - a.lastAt;
+  const groups = [...convs.values()].filter((c) => c.kind === 'g').sort(byRecent);
+  const people = [...convs.values()].filter((c) => c.kind === 'p' && c.msgs.length).sort(byRecent);
+  const known = new Set(people.map((c) => c.peer));
+  // everyone else in the room, to start a personal chat with
+  const others = [...state.devices.filter((d) => d.kind !== 'PC'), ...(state.local ? [] : [{ id: state.meId, name: state.me, key: state.meKey }])]
+    .filter((d) => d.id && !known.has(d.id));
+  const row = (c) => {
+    const last = [...c.msgs].reverse().find((m) => !m.system);
+    const n = unreadIn(c);
+    const b = el('button', { type: 'button', className: 'conv' + (c.id === openConv ? ' open' : '') },
+      convFace(c),
+      el('span', { className: 'conv-text' },
+        el('span', { className: 'conv-name', textContent: convName(c) }),
+        el('span', { className: 'conv-last', textContent: last ? `${last.mine ? 'You' : person(last.from).name}: ${last.text}` : c.kind === 'g' ? `${c.members.size} members` : 'No messages yet' })),
+      el('span', { className: 'conv-side' }, el('span', { className: 'conv-time', textContent: last ? clock(last.at) : '' }), n ? el('span', { className: 'badge-n', textContent: String(n) }) : ''));
+    b.addEventListener('click', () => openChat(c.id));
+    return el('li', {}, b);
+  };
+  const items = [row(conv('all'))];
+  if (groups.length) items.push(el('li', { className: 'conv-head', textContent: 'Groups' }), ...groups.map(row));
+  if (people.length) items.push(el('li', { className: 'conv-head', textContent: 'Personal' }), ...people.map(row));
+  if (others.length) {
+    items.push(el('li', { className: 'conv-head', textContent: 'Start a chat' }));
+    for (const d of others) {
+      const b = el('button', { type: 'button', className: 'conv', disabled: !d.key }, avatar(d),
+        el('span', { className: 'conv-text' }, el('span', { className: 'conv-name', textContent: d.name }),
+          el('span', { className: 'conv-last', textContent: d.key ? (isVerified(d.key) ? '✓ verified' : 'not verified') : 'no key, cannot chat yet' })));
+      b.addEventListener('click', () => openChat('p:' + d.id));
+      items.push(el('li', {}, b));
+    }
+  }
+  list.replaceChildren(...items);
+}
+
+const clock = (at) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** Text with its links made clickable, built from nodes so nothing in a message can become markup. */
+function linkify(text) {
+  const out = [];
+  let at = 0;
+  for (const m of text.matchAll(LINK)) {
+    if (m.index > at) out.push(text.slice(at, m.index));
+    out.push(el('a', { href: m[0], textContent: m[0], target: '_blank', rel: 'noopener noreferrer' }));
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
+
+let threadKey = '';
+function renderThread() {
+  const c = openConv && (openConv.startsWith('g:') ? convs.get(openConv) : conv(openConv));
+  if (!c) { if (openConv) { openConv = null; showPane('list'); } return; }
+  $('#threadFace').replaceChildren(convFace(c));
+  $('#threadTitle').textContent = convName(c);
+  const peer = c.kind === 'p' ? person(c.peer) : null;
+  $('#threadSub').textContent = c.kind === 'all' ? `Everyone in the room · end-to-end encrypted`
+    : c.kind === 'g' ? [...c.members].map((id) => (id === state.youId ? 'You' : person(id).name)).join(', ')
+    : peer.key ? `${isVerified(peer.key) ? '✓ verified' : 'not verified'} · end-to-end encrypted` : 'no key, cannot chat yet';
+  $('#leaveGroup').hidden = c.kind !== 'g';
+  const now = Date.now();
+  const typers = [...(typing.get(c.id) || new Map())].filter(([, until]) => until > now).map(([id]) => person(id).name);
+  $('#typingLine').textContent = typers.length ? `${typers.join(', ')} ${typers.length > 1 ? 'are' : 'is'} typing…` : '';
+  const key = c.id + c.msgs.length + state.you + chatWarned;
+  if (key === threadKey) return;
+  threadKey = key;
+  const box = $('#textList');
+  const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  const msgs = c.msgs;
+  box.replaceChildren(...msgs.map((m, i) => {
+    if (m.system) return el('li', { className: 'msg-system' + (m.warn ? ' warn' : ''), textContent: m.text });
+    const prev = msgs[i - 1];
+    const first = !prev || prev.system || prev.from !== m.from || m.at - prev.at > 5 * 60 * 1000;
+    const copy = el('button', { className: 'icon-btn', type: 'button' }, icon('i-copy'));
+    copy.setAttribute('aria-label', 'Copy message');
+    copy.addEventListener('click', () => copyText(m.text));
+    const who = person(m.from);
+    const body = el('div', { className: 'msg-body' });
+    if (first) body.append(el('div', { className: 'msg-who' }, m.mine ? 'You' : who.name,
+      m.mine ? '' : el('span', { className: 'trust' + (m.verified ? ' ok' : ''), textContent: m.verified ? ' ✓ verified' : ' · not verified' })));
+    body.append(el('div', { className: 'bubble' }, ...linkify(m.text)), el('div', { className: 'msg-meta' }, el('span', { textContent: clock(m.at) }), copy));
+    const li = el('li', { className: 'msg' + (m.mine ? ' mine' : '') + (first ? ' first' : '') }, first ? avatar(who) : el('span', { className: 'avatar-gap' }), body);
+    li.dataset.id = m.id;
+    return li;
+  }));
+  $('#textEmpty').hidden = msgs.length > 0;
+  if (stick) box.scrollTop = box.scrollHeight;
+  if ($('#sheet-notes').open && !document.hidden) markConvRead(c);
+}
+setInterval(() => { if ($('#sheet-notes').open && openConv) { threadKey = ''; renderThread(); } }, 1000); // typing line, times
+
 $('#noteForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const text = $('#note').value;
+  const c = openConv && (openConv.startsWith('g:') ? convs.get(openConv) : conv(openConv));
+  const text = $('#note').value.trim();
   const error = $('#noteError');
-  if (!text.trim()) { error.textContent = 'Type or paste something first.'; return; }
+  if (!c || !text) return;
   error.textContent = '';
   try {
-    const to = $('#chatTo').value;
-    await call('/api/text?to=' + encodeURIComponent(to), { method: 'POST', body: text });
+    await sendEnvelope({ k: 'msg', ...wireConv(c), t: text }, c);
     $('#note').value = '';
-    if (to === '*' && !state.local) toast(`Sent. It is on ${state.me}'s clipboard too`);
-    chatStick = true;
-    await refresh();
+    lastTypingSent = 0;
+    await loadChat();
+    $('#textList').scrollTop = $('#textList').scrollHeight;
   } catch (err) {
-    if (!(err instanceof PinError)) error.textContent = 'Could not reach the PC. Try again.';
+    if (!(err instanceof PinError)) error.textContent = `Not sent: ${err.message}`;
   }
 });
-
-$('#pullClip').addEventListener('click', async () => {
-  try {
-    const text = await (await call('/api/clip')).text();
-    $('#note').value = text;
-    $('#noteError').textContent = '';
-    toast(text ? 'Got the PC clipboard' : 'The PC clipboard is empty');
-  } catch (err) {
-    if (!(err instanceof PinError)) $('#noteError').textContent = 'Could not reach the PC. Try again.';
-  }
-});
-
-// Enter sends, Shift+Enter starts a new line (on a keyboard; phones keep Enter for new lines)
+// Enter sends, Shift+Enter starts a new line
 $('#note').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(pointer: fine)').matches) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
     $('#noteForm').requestSubmit();
   }
 });
-
-/* ---- chat: bubbles, newest at the bottom, a dot on the button for unread messages ---- */
-let chatKey = '';
-let chatStick = true; // keep the newest message in view unless the person scrolled up to read
-let readUpTo = Number(session.get('rooftop-read') || 0);
-$('#sheet-notes .sheet-inner').addEventListener('scroll', () => {
-  const l = $('#sheet-notes .sheet-inner');
-  chatStick = l.scrollHeight - l.scrollTop - l.clientHeight < 40;
+// "Asha is typing…": at most every 3 s, sealed for the people in this conversation only
+$('#note').addEventListener('input', () => {
+  const c = openConv && (openConv.startsWith('g:') ? convs.get(openConv) : conv(openConv));
+  if (!c || !$('#note').value.trim() || Date.now() - lastTypingSent < 3000) return;
+  lastTypingSent = Date.now();
+  sendEnvelope({ k: 'typing', ...wireConv(c) }, c, 8, false).catch(() => {});
 });
 
-function renderChat() {
-  const texts = [...state.texts].reverse(); // oldest first
-  const key = texts.map((t) => t.at + t.from).join('|') + state.you;
-  if (key !== chatKey) {
-    chatKey = key;
-    $('#textList').replaceChildren(...texts.map((t, i) => {
-      const copy = el('button', { className: 'icon-btn', type: 'button' }, icon('i-copy'));
-      copy.setAttribute('aria-label', 'Copy message');
-      copy.addEventListener('click', () => copyText(t.text));
-      const first = i === 0 || texts[i - 1].fromId !== t.fromId; // the name goes above the first message of each run
-      const where = t.private ? (t.mine ? ` → ${t.to}` : ' → you') : '';
-      const body = el('div', { className: 'msg-body' });
-      if (first) body.append(el('div', { className: 'msg-who', textContent: (t.mine ? 'You' : t.from) + where }));
-      body.append(el('div', { className: 'bubble', textContent: t.text }), el('div', { className: 'msg-meta' }, el('span', { textContent: timeAgo(t.at) }), copy));
-      const face = first ? avatar({ id: t.fromId, name: t.from }) : el('span', { className: 'avatar-gap' });
-      return el('li', { className: 'msg' + (t.mine ? ' mine' : '') + (t.private ? ' private' : '') + (first ? ' first' : '') }, face, body);
-    }));
-    if ($('#sheet-notes').open && chatStick) requestAnimationFrame(() => { const l = $('#sheet-notes .sheet-inner'); l.scrollTop = l.scrollHeight; });
+$('#leaveGroup').addEventListener('click', async () => {
+  const c = convs.get(openConv);
+  if (!c || c.kind !== 'g') return;
+  try {
+    await sendEnvelope({ k: 'leave', g: c.id.slice(2) }, c); // tell the others, and our own copy closes it here
+    await loadChat();
+    openConv = null;
+    showPane('list');
+    renderChatAll();
+    toast(`You left ${c.name}`);
+  } catch (err) {
+    if (!(err instanceof PinError)) toast(`Could not leave: ${err.message}`);
   }
-  $('#textEmpty').hidden = state.texts.length > 0;
-  $('#pullClip').hidden = state.local;
-  if ($('#sheet-notes').open) markRead();
-  const unread = state.texts.some((t) => !t.mine && t.at > readUpTo);
-  $('#chatDot').hidden = !unread;
-  $('#chatBtn').setAttribute('aria-label', unread ? 'Chat, new messages' : 'Chat');
-}
-
-function markRead() {
-  const newest = state.texts.reduce((a, t) => Math.max(a, t.at), 0);
-  if (newest > readUpTo) { readUpTo = newest; session.set('rooftop-read', String(readUpTo)); }
-}
-
-$('#sheet-notes').addEventListener('close', () => { chatStick = true; });
-document.querySelector('[data-sheet="notes"]').addEventListener('click', () => {
-  markRead();
-  renderChat();
-  chatStick = true;
-  requestAnimationFrame(() => { const l = $('#sheet-notes .sheet-inner'); l.scrollTop = l.scrollHeight; });
 });
+
+$('#newGroupBtn').addEventListener('click', () => {
+  const people = state.devices.filter((d) => d.kind !== 'PC').concat(state.local ? [] : [{ id: state.meId, name: state.me, key: state.meKey }]);
+  $('#groupPeople').replaceChildren(el('legend', { textContent: 'Who is in it' }), ...people.map((d) => {
+    const box = el('input', { type: 'checkbox', value: d.id, disabled: !d.key });
+    return el('label', { className: 'pick' + (d.key ? '' : ' off') }, box, avatar(d), el('span', { textContent: d.name + (d.key ? '' : ' · no key') }));
+  }));
+  $('#groupName').value = '';
+  $('#groupError').textContent = people.length ? '' : 'Nobody else is here yet.';
+  showPane('group');
+  $('#groupName').focus();
+});
+$('#groupBack').addEventListener('click', () => showPane(openConv ? 'thread' : 'list'));
+$('#groupForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = $('#groupName').value.replace(/\s+/g, ' ').trim().slice(0, 40);
+  const picked = [...document.querySelectorAll('#groupPeople input:checked')].map((i) => i.value);
+  if (!name) { $('#groupError').textContent = 'Give the group a name.'; return; }
+  if (!picked.length) { $('#groupError').textContent = 'Pick at least one person.'; return; }
+  const g = E2E.b64(crypto.getRandomValues(new Uint8Array(9)));
+  const draft = { id: 'g:' + g, kind: 'g', name, members: new Set([state.youId, ...picked]), msgs: [], lastAt: Date.now() };
+  try {
+    await sendEnvelope({ k: 'group', g, n: name, m: [...draft.members] }, draft); // name and members travel sealed
+    await loadChat();
+    openChat('g:' + g);
+  } catch (err) {
+    if (!(err instanceof PinError)) $('#groupError').textContent = `Could not make the group: ${err.message}`;
+  }
+});
+
+// Starting a personal chat from Nearby (tap a person) or from Send to (the chat button next to it)
+$('#deviceList').addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-id]');
+  if (li) { $('#sheet-nearby').close(); openChat('p:' + li.dataset.id); }
+});
+$('#sendToChat').addEventListener('click', () => { const to = $('#sendTo').value; if (to !== '*') openChat('p:' + to); });
+$('#sendTo').addEventListener('change', () => { $('#sendToChat').hidden = $('#sendTo').value === '*'; });
+$('#hostOpenChat')?.addEventListener('click', () => openChat(null));
+setInterval(() => { if ($('#sheet-notes').open) loadChat(); }, 1500); // quicker while the chat is open
 
 /* ---- the name screen: asked once, right after "Enter the city" ---- */
 const DEFAULT_NAME = /^(iPhone|iPad|Android|Windows browser|Mac browser|Linux browser|Browser) \.\d+$/;
