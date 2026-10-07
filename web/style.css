@@ -1594,7 +1594,7 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
 /* light mode: the PC panel's cards and the pop-up sheets turn cream with dark text instead of staying dark.
    They are drawn with the --ink / --chalk tokens, so swapping the tokens inside them recolours everything at once.
    (The pills floating on the city stay dark in both modes, so they read against the buildings.) */
-:root[data-theme="light"] :is(.host-card, dialog.sheet) {
+:root[data-theme="light"] :is(.host-card, dialog.sheet, .namegate-card) {
   --ink: #fbf5ec;
   --ink-raised: #f1e6d8;
   --ink-line: #dccbb7;
@@ -1606,7 +1606,7 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
   border: 1px solid rgb(70 56 38 / 0.12);
 }
 @media not (prefers-color-scheme: dark) {
-  :root:not([data-theme="dark"]) :is(.host-card, dialog.sheet) {
+  :root:not([data-theme="dark"]) :is(.host-card, dialog.sheet, .namegate-card) {
     --ink: #fbf5ec;
     --ink-raised: #f1e6d8;
     --ink-line: #dccbb7;
@@ -1619,7 +1619,7 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
   }
 }
 /* the scan-to-connect card keeps its coloured offset shadow in light mode too */
-:root[data-theme="light"] .host-card.connect-card { box-shadow: 5px 5px 0 var(--pink), 10px 10px 0 #f2b632; }
+:root[data-theme="light"] :is(.host-card.connect-card, .namegate-card) { box-shadow: 5px 5px 0 var(--pink), 10px 10px 0 #f2b632; }
 @media not (prefers-color-scheme: dark) {
-  :root:not([data-theme="dark"]) .host-card.connect-card { box-shadow: 5px 5px 0 var(--pink), 10px 10px 0 #f2b632; }
+  :root:not([data-theme="dark"]) :is(.host-card.connect-card, .namegate-card) { box-shadow: 5px 5px 0 var(--pink), 10px 10px 0 #f2b632; }
 }
