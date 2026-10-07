@@ -2790,6 +2790,11 @@ function renderNotify() {
     : Notification.permission === 'denied' ? 'Notifications are blocked for this page in the browser settings.'
     : on ? 'You get a notification when a file or message arrives while Rooftop is in the background.' : '';
   for (const p of document.querySelectorAll('[data-notify-note]')) { p.textContent = note; p.hidden = !note; }
+  for (const b of document.querySelectorAll('[data-notify-state]')) {
+    b.textContent = !canNotify ? 'Not available' : on ? 'On' : 'Off';
+    b.classList.toggle('on', on);
+  }
+  document.querySelector('.notify-art')?.classList.toggle('on', on);
 }
 document.querySelectorAll('[data-notify]').forEach((b) => b.addEventListener('click', async () => {
   if (notifyOn()) local.set('rooftop-notify', 'off');

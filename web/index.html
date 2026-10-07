@@ -174,8 +174,10 @@
       <div class="my-key"><div class="qr-wrap"><canvas data-my-qr width="264" height="264" aria-label="QR code of this PC's key"></canvas></div></div>
     </section>
 
-    <section class="host-card">
-      <h2>Notifications</h2>
+    <section class="host-card notify-card">
+      <h2>Notifications <span class="notify-state" data-notify-state>Off</span></h2>
+      <div class="notify-art" aria-hidden="true"><svg class="i"><use href="#i-bell"/></svg></div>
+      <p class="empty notify-what">A notification when a file or message arrives while Rooftop is in the background, and a count in the tab title.</p>
       <button class="notify-btn" type="button" data-notify aria-pressed="false"><svg class="i"><use href="#i-bell"/></svg><span>Notify me when something arrives</span></button>
       <p class="empty notify-note" data-notify-note></p>
     </section>

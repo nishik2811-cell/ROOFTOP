@@ -1493,3 +1493,11 @@ body.is-host .host-more .my-key, body.is-host .host-more .notify-btn { align-sel
 .bar { gap: 8px; }
 .joined { gap: 8px; }
 .joined > * + * { margin-left: 0; box-shadow: none; }
+
+/* notifications card: a bell, an on/off badge, a line about what it does, then the switch */
+.notify-state { padding: 3px 9px; border-radius: 999px; background: var(--ink-raised); color: var(--chalk-dim); font-size: 10px; letter-spacing: 0.1em; }
+.notify-state.on { background: #2a8c5c; color: #fff; }
+.notify-art { align-self: center; width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; background: var(--ink-raised); color: var(--chalk-dim); box-shadow: 3px 3px 0 var(--pink), 6px 6px 0 var(--accent); }
+.notify-art .i { width: 32px; height: 32px; }
+.notify-art.on { color: var(--accent); }
+.notify-what { text-align: center; }
