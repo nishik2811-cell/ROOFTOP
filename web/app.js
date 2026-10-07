@@ -110,6 +110,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       shade: 0.82, roofA: '#c8673f', roofB: '#6d7787', window: '#3f5560', shutters: ['#2f8f83', '#3d6fb0', '#c2463b'],
       lit: null, ink: '#3a2a26', tank: '#8a5a3c', leaf: '#3f8a52', leafDark: '#2b6a3c', bloom: '#e85d9a',
       board: '#2a2422', bulb: null,
+      seaFar: '#3d93ad', seaNear: '#6cc6c1', sand: '#f2dcae', wetSand: '#d8b986', foam: 'rgba(255,255,255,0.85)', sail: '#fbf3e6',
     },
     night: {
       skyTop: '#160f38', skyLow: '#5a2a6e', sun: null, haze: 'rgba(120,60,140,0.4)',
@@ -119,6 +120,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       shade: 0.75, roofA: '#4a2c2a', roofB: '#262b38', window: '#1b1d2b', shutters: ['#1f4e48', '#22385c', '#5c2a26'],
       lit: '#ffcf73', ink: '#120d1a', tank: '#4a3426', leaf: '#1f4a33', leafDark: '#143423', bloom: '#8a3a6a',
       board: '#120d1a', bulb: '#fff1c2',
+      seaFar: '#101d3c', seaNear: '#1d3f5e', sand: '#4a3f58', wetSand: '#372f48', foam: 'rgba(255,226,170,0.45)', sail: '#cfc3d8',
     },
   };
 
@@ -129,6 +131,11 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   const CANAL_J = 1;                              // the street after block row 1 is a canal
   const CANAL = [bz(CANAL_J) + BD, bz(CANAL_J + 1)];
   const PLAZA = { x0: bx(2), x1: bx(3) + BW, z0: bz(3), z1: bz(4) + BD };
+  // Towards the horizon the city ends at a beach and the sea runs out to the sky. On this projection
+  // screen height depends only on x + z, so the shoreline is a straight horizontal line on screen.
+  const SHORE = 8, LAND = SHORE + 2.5;            // x + z where the water stops, and where the sand stops
+  const onLand = (x, z, margin = 0) => x + z >= LAND + margin;
+  const shoreY = SHORE * 0.5 * U, landY = LAND * 0.5 * U;
   const AVENUES = [];
   for (let i = -3; i <= 7; i++) AVENUES.push([bx(i) + BW, bx(i + 1)]);
   const ROADS_Z = [];
@@ -150,6 +157,11 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       lots.push({ x0, x1: x0 + BW, z0, z1: z0 + BD });
       const d = Math.hypot(x0 + BW / 2 - centre[0], z0 + BD / 2 - centre[1]);
       const seed = Math.floor(plan() * 1e9);
+      if (!onLand(x0, z0, -1)) { // the block runs into the beach: keep it as a park of palms behind the sand
+        for (let px = x0 + 1; px < x0 + BW; px += 2.2) for (let pz = z0 + 1; pz < z0 + BD; pz += 2)
+          if (onLand(px, pz, 1)) trees.push({ x: px, z: pz, s: 0.7, seed: Math.floor(px * 13 + pz * 7), palm: true });
+        continue;
+      }
       if (towerBlocks.has(i + ',' + j)) {
         buildings.push({ type: 'tower', x0: x0 + 2, x1: x0 + 6, z0: z0 + 1, z1: z0 + 5, floors: 11, h: 11 * 0.95 + 0.4, facade: 3, roof: 'B', seed });
         continue;
@@ -167,6 +179,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   // street trees at an even rhythm along every avenue, and a ring around the plaza
   for (const [a] of AVENUES) for (let z = -24; z < 72; z += 2.5) {
     if (z > CANAL[0] - 1 && z < CANAL[1] + 1) continue;
+    if (!onLand(a, z, 0.5)) continue;
     trees.push({ x: a + 0.25, z, s: 0.62, seed: Math.floor(z * 31 + a) });
   }
   for (let x = PLAZA.x0 + 1; x < PLAZA.x1; x += 2) {
@@ -220,6 +233,11 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   for (const z of CAR_ROADS_Z) for (let k = 0; k < 2; k++) cars.push({ axis: 'x', lane: z + (k % 2 ? 0.6 : -0.6), dir: k % 2 ? -1 : 1, t: -40 + life() * 136, speed: 0.0016 + life() * 0.0012, color: CAR_COLORS[Math.floor(life() * 6)] });
   for (const [a, b] of AVENUES.filter((_, n) => n % 2 === 0)) for (let k = 0; k < 2; k++) cars.push({ axis: 'z', lane: (a + b) / 2 + (k % 2 ? 0.6 : -0.6), dir: k % 2 ? -1 : 1, t: -34 + life() * 100, speed: 0.0016 + life() * 0.0012, color: CAR_COLORS[Math.floor(life() * 6)] });
   const boats = [0, 1, 2].map((k) => ({ t: -40 + life() * 136, speed: 0.0009 + life() * 0.0006, dir: k % 2 ? -1 : 1, lane: CANAL[0] + 0.5 + k * 0.5, color: CAR_COLORS[k * 2] }));
+  // sailboats out at sea, each on a fixed line parallel to the shore (constant x + z), moving across the screen
+  const sails = [0.6, 3.2, 5.6].map((s0, k) => ({ s0, d: -70 + life() * 140, speed: 0.0007 + life() * 0.0006, dir: k % 2 ? -1 : 1 }));
+  // the bits of shoreline no building stands in front of, where the surf may be animated
+  const surf = [];
+  for (let x = view.x0 - 60; x < view.x1 + 60; x += 6) if (!hidden([x, shoreY - 2], SHORE * 2) && !hidden([x, shoreY + 2], SHORE * 2)) surf.push(x);
   const people = Array.from({ length: 30 }, () => ({ x: PLAZA.x0 + 1.5 + life() * (PLAZA.x1 - PLAZA.x0 - 3), z: PLAZA.z0 + 1.5 + life() * (PLAZA.z1 - PLAZA.z0 - 3), a: life() * 6.28, color: CAR_COLORS[Math.floor(life() * 6)] }));
 
   /* ---- state ---- */
@@ -291,7 +309,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
         c.fillRect(x0 + r() * w, view.y0 - 40 + r() * (horizon - view.y0), 1.5, 1.5);
       }
     }
-    // a distant skyline cut-out along the horizon
+    // a distant skyline cut-out along the horizon, across the water
     c.fillStyle = shade(p.skyLow, 0.86);
     for (let x = x0; x < x0 + w;) {
       const bw = 24 + r() * 50, bh = 20 + r() * 70;
@@ -306,17 +324,19 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
 
     // ground everywhere below the horizon, so the sky never shows through at the sides
     c.save();
-    c.beginPath(); c.rect(x0, horizon + 34, w, view.y1 - horizon + 80); c.clip();
+    c.beginPath(); c.rect(x0, horizon + 40, w, view.y1 - horizon + 80); c.clip();
     c.fillStyle = p.ground;
     c.fillRect(x0, horizon, w, view.y1 - horizon + 120);
-    c.restore();
-    poly(c, [iso(-20, 0, -22), iso(66, 0, -22), iso(66, 0, 50), iso(-20, 0, 50)], p.ground);
     c.fillStyle = p.speck;
     for (let i = 0; i < 2400; i++) {
       const [sx, sy] = iso(-4 + r() * 54, 0, -4 + r() * 48);
       c.fillRect(sx, sy, 1.6, 1.6);
     }
+    c.restore();
     // roads
+    // everything on the ground stops where the sand starts
+    c.save();
+    c.beginPath(); c.rect(x0, landY, w, view.y1 - landY + 200); c.clip();
     for (const z of ROADS_Z) poly(c, [iso(-40, 0, z - ST / 2), iso(100, 0, z - ST / 2), iso(100, 0, z + ST / 2), iso(-40, 0, z + ST / 2)], p.road);
     for (const [a, b] of AVENUES) poly(c, [iso(a, 0, -40), iso(b, 0, -40), iso(b, 0, 70), iso(a, 0, 70)], p.road);
     c.strokeStyle = p.lane;
@@ -325,7 +345,12 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     for (const z of ROADS_Z) { const a = iso(-40, 0, z), b = iso(100, 0, z); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); }
     for (const [a, b] of AVENUES) { const s = iso((a + b) / 2, 0, -40), e = iso((a + b) / 2, 0, 70); c.beginPath(); c.moveTo(s[0], s[1]); c.lineTo(e[0], e[1]); c.stroke(); }
     c.setLineDash([]);
-    // canal with stone edges and two bridges
+    for (const l of lots) poly(c, [iso(l.x0, 0, l.z0), iso(l.x1, 0, l.z0), iso(l.x1, 0, l.z1), iso(l.x0, 0, l.z1)], p.lawn);
+    c.restore();
+    drawCoast(c, p, r, x0, w);
+    // canal with stone edges and two bridges; it runs across the sand into the sea
+    c.save();
+    c.beginPath(); c.rect(x0, shoreY - 3, w, view.y1 - shoreY + 200); c.clip();
     poly(c, [iso(-20, 0, CANAL[0]), iso(66, 0, CANAL[0]), iso(66, 0, CANAL[1]), iso(-20, 0, CANAL[1])], p.water);
     c.strokeStyle = p.ripple;
     c.lineWidth = 1;
@@ -339,13 +364,13 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       inked(c, [iso(a, 0.3, CANAL[0] - 0.3), iso(a, 0.3, CANAL[1] + 0.3), iso(a, 0.6, CANAL[1] + 0.3), iso(a, 0.6, CANAL[0] - 0.3)], r, p.ink, 0.8);
       inked(c, [iso(b, 0.3, CANAL[0] - 0.3), iso(b, 0.3, CANAL[1] + 0.3), iso(b, 0.6, CANAL[1] + 0.3), iso(b, 0.6, CANAL[0] - 0.3)], r, p.ink, 0.8);
     }
+    c.restore();
     // plaza: tiles, a fountain in the middle
     poly(c, [iso(PLAZA.x0, 0, PLAZA.z0), iso(PLAZA.x1, 0, PLAZA.z0), iso(PLAZA.x1, 0, PLAZA.z1), iso(PLAZA.x0, 0, PLAZA.z1)], p.plaza);
     c.strokeStyle = p.tile;
     c.lineWidth = 1;
     for (let x = PLAZA.x0; x <= PLAZA.x1; x += 1) { const a = iso(x, 0, PLAZA.z0), b = iso(x, 0, PLAZA.z1); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); }
     for (let z = PLAZA.z0; z <= PLAZA.z1; z += 1) { const a = iso(PLAZA.x0, 0, z), b = iso(PLAZA.x1, 0, z); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); }
-    for (const l of lots) poly(c, [iso(l.x0, 0, l.z0), iso(l.x1, 0, l.z0), iso(l.x1, 0, l.z1), iso(l.x0, 0, l.z1)], p.lawn);
     for (const g of gardens) {
       poly(c, [iso(g.x0, 0, g.z0), iso(g.x1, 0, g.z0), iso(g.x1, 0, g.z1), iso(g.x0, 0, g.z1)], p.plaza);
       c.fillStyle = p.bloom;
@@ -360,6 +385,54 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     c.fillRect(fx - 4, fy - 26, 8, 22);
     c.fillStyle = p.ripple;
     c.beginPath(); c.ellipse(fx, fy - 28, 10, 5, 0, 0, Math.PI * 2); c.fill();
+  }
+
+  /* ---- coast: sea from the horizon to the shore, then a strip of sand up to the first street ---- */
+  function drawCoast(c, p, r, x0, w) {
+    const seaTop = horizon + 40; // the far skyline stands right on the water
+    const sea = c.createLinearGradient(0, seaTop, 0, shoreY);
+    sea.addColorStop(0, p.seaFar);
+    sea.addColorStop(1, p.seaNear);
+    c.fillStyle = sea;
+    c.fillRect(x0, seaTop, w, shoreY - seaTop);
+    // swell: short strokes, smaller and flatter towards the horizon
+    c.strokeStyle = p.ripple;
+    c.lineCap = 'round';
+    for (let i = 0; i < 260; i++) {
+      const t = r(), y = seaTop + 4 + t * t * (shoreY - seaTop - 8), near = (y - seaTop) / (shoreY - seaTop);
+      const x = x0 + r() * w, len = 4 + near * 14;
+      c.globalAlpha = 0.35 + near * 0.5;
+      c.lineWidth = 0.6 + near * 0.9;
+      c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + len / 2, y - 1.5 - near * 2, x + len, y); c.stroke();
+    }
+    c.globalAlpha = 1;
+    if (p.sun) { // the sun's path on the water
+      const sx = view.x0 + W * 0.72;
+      c.fillStyle = p.sun;
+      for (let y = seaTop + 2; y < shoreY - 6; y += 4) {
+        const near = (y - seaTop) / (shoreY - seaTop), half = 30 - near * 14 + (r() - 0.5) * 16;
+        c.globalAlpha = 0.55 * (1 - near * 0.7);
+        c.fillRect(sx - half, y, half * 2, 1.4);
+      }
+      c.globalAlpha = 1;
+    }
+    // sand, darker where the waves wet it, with a scatter of shells and pebbles
+    c.fillStyle = p.sand;
+    c.fillRect(x0, shoreY, w, landY - shoreY + 1);
+    c.fillStyle = p.wetSand;
+    c.beginPath(); c.moveTo(x0, shoreY);
+    for (let x = x0; x <= x0 + w; x += 12) c.lineTo(x, shoreY + 4 + Math.sin(x * 0.05) * 1.6);
+    c.lineTo(x0 + w, shoreY); c.closePath(); c.fill();
+    c.fillStyle = p.speck;
+    for (let i = 0; i < 500; i++) c.fillRect(x0 + r() * w, shoreY + 6 + r() * (landY - shoreY - 7), 1.5, 1.5);
+    c.strokeStyle = p.foam;
+    c.lineWidth = 1.6;
+    c.beginPath();
+    for (let x = x0; x <= x0 + w; x += 6) { const y = shoreY - 1 + Math.sin(x * 0.07) * 1.4; x === x0 ? c.moveTo(x, y) : c.lineTo(x, y); }
+    c.stroke();
+    // a curb where the street begins
+    c.fillStyle = shade(p.sand, 0.86);
+    c.fillRect(x0, landY - 1.5, w, 2);
   }
 
   /* ---- buildings ---- */
@@ -492,6 +565,20 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     const r = rng(t.seed);
     const [bx, by] = iso(t.x, 0, t.z);
     const size = 13 * t.s;
+    if (t.palm) { // a leaning trunk and a crown of drooping fronds
+      const lean = (r() - 0.5) * 10, top = [bx + lean, by - size * 2.6];
+      c.strokeStyle = shade(p.tank, 1.1); c.lineWidth = 2.6;
+      c.beginPath(); c.moveTo(bx, by); c.quadraticCurveTo(bx + lean * 0.2, by - size * 1.4, top[0], top[1]); c.stroke();
+      c.fillStyle = p.leaf; c.strokeStyle = p.leafDark; c.lineWidth = 0.9;
+      for (let k2 = 0; k2 < 6; k2++) {
+        const a = (k2 / 6) * Math.PI * 2 + r() * 0.4, ex = top[0] + Math.cos(a) * size * 1.15, ey = top[1] + Math.abs(Math.sin(a)) * size * 0.35 + size * 0.45;
+        c.beginPath(); c.moveTo(top[0], top[1]);
+        c.quadraticCurveTo((top[0] + ex) / 2, top[1] - size * 0.5, ex, ey);
+        c.quadraticCurveTo((top[0] + ex) / 2, top[1] - size * 0.15, top[0], top[1]);
+        c.fill(); c.stroke();
+      }
+      return;
+    }
     c.strokeStyle = p.ink;
     c.lineWidth = 1.8;
     c.beginPath(); c.moveTo(bx, by); c.lineTo(bx, by - size * 1.3); c.stroke();
@@ -775,12 +862,38 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     const p = night ? PALETTES.night : PALETTES.day;
     for (const car of cars) {
       // wrap around the whole city, well outside the view, so cars never pop in or out on screen
-      const [lo, hi] = car.axis === 'x' ? [-40, 96] : [-34, 66];
+      // and stop short of the beach: a road meets the sand at x + z = LAND
+      const [lo, hi] = car.axis === 'x' ? [Math.max(-40, LAND + 0.8 - car.lane), 96] : [Math.max(-34, LAND + 0.8 - car.lane), 66];
+      if (hi <= lo + 4) continue;
       car.t += car.dir * car.speed * dt;
       if (car.t > hi) car.t = lo; else if (car.t < lo) car.t = hi;
       const [x, z] = car.axis === 'x' ? [car.t, car.lane] : [car.lane, car.t];
-      if (car.axis === 'z' && z > CANAL[0] - 0.4 && z < CANAL[1] + 0.4) { drawCar(x, 0.3, z, car, p); continue; }
-      drawCar(x, 0, z, car, p);
+      ctx.globalAlpha = Math.min(1, (car.t - lo) / 2, (hi - car.t) / 2);
+      drawCar(x, car.axis === 'z' && z > CANAL[0] - 0.4 && z < CANAL[1] + 0.4 ? 0.3 : 0, z, car, p);
+      ctx.globalAlpha = 1;
+    }
+    // surf rolling in along the beach
+    ctx.strokeStyle = p.foam;
+    ctx.lineWidth = 1.3;
+    ctx.globalAlpha = 0.45 + 0.35 * Math.sin(now * 0.0012);
+    ctx.beginPath();
+    for (let i = 0; i < surf.length; i++) {
+      const x = surf[i], y = shoreY - 3.5 + Math.sin(x * 0.05 + now * 0.0015) * 1.6 + Math.sin(now * 0.0012) * 1.2;
+      if (i && surf[i - 1] === x - 6) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    for (const sail of sails) {
+      sail.d += sail.dir * sail.speed * dt;
+      if (sail.d > 75) sail.d = -75; else if (sail.d < -75) sail.d = 75;
+      const pt = iso((sail.s0 + sail.d) / 2, 0, (sail.s0 - sail.d) / 2);
+      if (hidden(pt, sail.s0 * 2)) continue;
+      const k2 = 0.55 + sail.s0 / SHORE * 0.6; // nearer boats are bigger
+      ctx.fillStyle = p.ink;
+      ctx.beginPath(); ctx.moveTo(pt[0] - 9 * k2, pt[1]); ctx.lineTo(pt[0] + 9 * k2, pt[1]); ctx.lineTo(pt[0] + 6 * k2, pt[1] + 3.5 * k2); ctx.lineTo(pt[0] - 6 * k2, pt[1] + 3.5 * k2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = p.sail;
+      ctx.beginPath(); ctx.moveTo(pt[0] - sail.dir * 1, pt[1] - 1); ctx.lineTo(pt[0] - sail.dir * 1, pt[1] - 17 * k2); ctx.lineTo(pt[0] + sail.dir * 8 * k2, pt[1] - 2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(pt[0] - sail.dir * 2.5, pt[1] - 1); ctx.lineTo(pt[0] - sail.dir * 2.5, pt[1] - 13 * k2); ctx.lineTo(pt[0] - sail.dir * 8 * k2, pt[1] - 2); ctx.closePath(); ctx.fill();
     }
     for (const boat of boats) {
       boat.t += boat.dir * boat.speed * dt;
@@ -806,6 +919,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     }
     if (p.lit) { // night: street lamps along the avenues
       for (const [a, b] of AVENUES) for (let z = 1; z < 40; z += 4) {
+        if (!onLand(b, z, 0.5)) continue;
         const [lx, ly] = iso(b + 0.2, 0, z);
         if (hidden([lx, ly - 8], b * 2 + z * 2)) continue;
         ctx.fillStyle = 'rgba(255,207,115,0.18)';
@@ -853,6 +967,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       if (!(b.x0 >= x1 - 0.01 || b.z0 >= z1 - 0.01)) continue;
       if (sx1 < b.box.x0 || sx0 > b.box.x1 || sy1 < b.box.y0 || sy0 > b.box.y1) continue;
       ctx.save();
+      ctx.globalAlpha = 1; // a car fading out at the beach still passes fully behind buildings
       ctx.beginPath();
       b.sil.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
       ctx.closePath();
