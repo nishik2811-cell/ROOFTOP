@@ -24,7 +24,7 @@ import rooftop.error.OffsetMismatchException;
 import rooftop.security.FileNames;
 import rooftop.util.Streams;
 
-/** Aggregation: the inbox holds ReceivedItems, which are plain values that can outlive it. */
+/** Received files and texts. ReceivedItems are plain values, so callers can keep them after removal. */
 public class Inbox {
     private static final int MAX_TEXTS = 20;
     private static final long STALE_PART_MS = 24L * 60 * 60 * 1000; // unfinished transfers are kept this long for resuming

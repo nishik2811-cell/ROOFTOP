@@ -5,7 +5,7 @@ import java.nio.file.Path;
 
 /**
  * What differs between a PC and an Android phone. Rooftop's shared code talks only to this interface;
- * DesktopPlatform and the Android app's AndroidPlatform implement it (runtime polymorphism).
+ * DesktopPlatform and the Android app's AndroidPlatform implement it.
  */
 public interface Platform {
     String deviceName();

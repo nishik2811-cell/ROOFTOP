@@ -2,7 +2,7 @@
 
 **AllDrop: AirDrop for *all* your devices.** iPhone to Windows, Android to Mac, Linux to anything. Files and clipboard text fly across the same Wi-Fi or hotspot, with no internet, no cables, no accounts and nothing to install on phones.
 
-Made by **Nishita, Aryan and Keshav** for the OOP using Java lab (24B15CS215).
+Made by **Nishita, Aryan and Keshav**.
 
 ---
 
@@ -85,25 +85,6 @@ Other folders:
 | `web/` | The page (HTML, CSS, JS, font). No frameworks. |
 | `android/` | Android host app: `AndroidPlatform`, `MainActivity`, `RooftopService`, `build.sh` |
 
-### OOP concepts used
-
-| Concept | Where |
-|---|---|
-| Classes, constructors, static members | `Rooftop`, `util/Texts`, `net/Wire` |
-| Inheritance (single, multilevel, hierarchical) | `Device` → `ThisDevice`; `Device` → `NetworkDevice` → `PcPeer` / `PhoneClient` |
-| Polymorphism | `Device.id()` overridden in `ThisDevice` and `PhoneClient`; `Platform` implemented by desktop and Android |
-| Association, aggregation, composition | `Transfer` uses a `NetworkDevice`, owns its `Progress`; `Inbox` holds `ReceivedItem`s |
-| Abstract classes, interfaces | `Device`, `Payload` (abstract); `Transferable`, `Platform` (interfaces) |
-| Packages | 7 packages under `src/rooftop` |
-| String, StringBuilder, StringBuffer | `FileNames`, `Texts` (progress bar, JSON, palindrome check), `ActivityLog` (thread-safe log) |
-| Exceptions | `RooftopException`, `WrongPinException`, `TransferFailedException`, `InvalidFileNameException`; multi-catch, try-with-resources |
-| Collections | `ArrayList`, `HashSet`, `LinkedList`, `TreeSet`, `HashMap`, `Iterator` |
-| Multithreading | `TransferServer extends Thread`, `Discovery implements Runnable`, `synchronized`, `wait`/`notifyAll` in `SendQueue` |
-| Applet | `ui/RadarApplet` (`init`, `start`, `paint`, `stop`, `destroy`) |
-| Generics | `Registry<K, V extends Device>` with `ofType(Class<T>)` |
-| Reflection, annotations | `cli/Shell` finds `@Command` methods and calls them with `Method.invoke` |
-| Records | `ReceivedItem`, `ReceivedText` |
-
 ## Security
 
 | Area | Protection |
@@ -152,24 +133,6 @@ sh android/build.sh
 ```
 
 The signing key (`android/rooftop-release.keystore`) is not in this repository. The script creates one if it is missing. Keep yours safe: Android only installs updates signed with the same key.
-
-## Syllabus coverage
-
-All 9 modules of 24B15CS215 are used in the project (details in [OOP concepts used](#oop-concepts-used)):
-
-| # | Module | Covered by |
-|---|---|---|
-| 1 | Fundamentals | Single-file source launch (`java src/rooftop/Main.java`), primitive types throughout |
-| 2 | OOP basics | Constructors, static members, arrays, control flow (`Rooftop`, `Texts`, `Wire`) |
-| 3 | Object modelling | Single, multilevel and hierarchical inheritance; association, aggregation, composition |
-| 4 | Modularity | Abstract classes, interfaces, 7 packages |
-| 5 | String | String, StringBuilder, StringBuffer, palindrome PIN check |
-| 6 | Exception handling | Custom checked and unchecked exceptions, propagation |
-| 7 | Collections | ArrayList, LinkedList, HashSet, TreeSet, HashMap, Iterator |
-| 8 | Multithreading | Thread, Runnable, synchronized, wait/notifyAll |
-| 9 | Applet | `RadarApplet` with all life cycle methods |
-
-Extras beyond the syllabus: generics, reflection, annotations, records, networking, cryptography.
 
 ## Credits
 

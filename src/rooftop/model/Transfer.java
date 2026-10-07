@@ -2,10 +2,10 @@ package rooftop.model;
 
 /** One queued send. */
 public class Transfer {
-    private final NetworkDevice target; // association: the device exists before and after this transfer
+    private final NetworkDevice target; // the device outlives this transfer
     private final Payload payload;
     private final String pin;
-    private final Progress progress;    // composition: born with this transfer and never shared
+    private final Progress progress;    // created with this transfer and never shared
 
     public Transfer(NetworkDevice target, Payload payload, String pin) {
         this.target = target;

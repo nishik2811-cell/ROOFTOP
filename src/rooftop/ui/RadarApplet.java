@@ -18,7 +18,7 @@ import rooftop.model.PcPeer;
 import rooftop.util.Registry;
 
 /**
- * Applet life cycle (init, start, paint, stop, destroy) driving a live radar of nearby devices.
+ * A live radar of nearby devices, built as an applet (init, start, paint, stop, destroy).
  * Browsers dropped applets years ago, so it is hosted in an AWT Frame instead of a web page.
  */
 @SuppressWarnings("removal") // java.applet is deprecated for removal but still ships in JDK 25
