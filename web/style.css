@@ -754,7 +754,7 @@ body.intro-on .stage {
 /* the "window" is the live city clipped down, which animates smoothly (no giant repainting shadow) */
 body.intro-on.intro-s2 .stage { clip-path: inset(7vh 8vw 21vh 8vw round 8px); }
 body.intro-on.intro-s3 .stage { clip-path: inset(calc(50% - 7.5vh) 34vw calc(50% - 7.5vh) 34vw round 999px); }
-body.intro-on .bar, body.intro-on .transmission, body.intro-on .toast, body.intro-on .host { visibility: hidden; }
+body.intro-on .bar, body.intro-on .transmission, body.intro-on .toast, body.intro-on .host, body.intro-on .host-more { visibility: hidden; }
 body.intro-on { overflow: hidden; }
 
 .intro {
@@ -1461,15 +1461,22 @@ body.intro-on .city-bubble { visibility: hidden; }
 }
 
 /* the PC's own page: QR code and devices beside the city, everything else in a row of cards under it */
-body.is-host .host { grid-row: 1 / span 3; }
+body.is-host .host { grid-row: 1 / span 2; align-self: start; }
 .host-more { display: none; }
 body.is-host .host-more {
-  grid-column: 1; grid-row: 3;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 22px; align-items: start;
-  margin-bottom: 36px;
+  grid-column: 1; grid-row: 2;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px;
+  align-items: stretch; /* every card the same height */
+  margin-top: 22px;
 }
+body.is-host .host-more .host-card { align-content: start; }
+body.is-host .host-more .my-key { justify-items: center; }
+body.is-host .host-more .notify-btn { justify-self: center; }
+/* the credits line goes last, at the bottom of the page, across both columns */
+body.is-host .frame > .credits { grid-column: 1 / -1; grid-row: 3; padding-top: 30px; }
 body.is-host .host-more[hidden] { display: none !important; }
 @media (max-width: 1100px) {
   body.is-host .host { grid-row: auto; }
-  body.is-host .host-more { grid-row: auto; }
+  body.is-host .host-more { grid-row: auto; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  body.is-host .frame > .credits { grid-row: auto; }
 }
