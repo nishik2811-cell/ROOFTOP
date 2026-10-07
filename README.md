@@ -8,7 +8,7 @@ Made by **Nishita, Aryan and Keshav**.
 
 ## Features
 
-- Works on **Windows, macOS, Linux** (Java host), **Android** (host app or browser) and **iPhone** (browser).
+- Works on **Windows, macOS, Linux** (Java host), **Android** (host app or Browser) and **iPhone** (browser).
 - Phones join by scanning a QR code, with no app needed.
 - Send files and text to **everyone** or to **one chosen device**.
 - **Every file end-to-end encrypted:** whether it goes to one device or to everyone, a file is sealed in the sender's browser for each recipient's key, and only those browsers can open it (the PC's own page included). The PC in the middle stores only ciphertext and deletes it once every recipient has saved its copy. Files for the PC itself wait, like an unread message, until the PC's page opens them, even across restarts.
