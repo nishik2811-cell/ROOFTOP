@@ -1501,7 +1501,7 @@ body.is-host .host-more .my-key, body.is-host .host-more .notify-btn { align-sel
 .notify-art .i { width: 32px; height: 32px; }
 .notify-art.on { color: var(--accent); }
 .notify-what { text-align: center; }
-.notify-card .notify-art { position: relative; top: -14px; } /* sit a little higher in the card */
+.notify-card .notify-art { position: relative; top: -28px; } /* sit a little higher in the card */
 /* the bell is the switch */
 button.notify-art { border: 0; padding: 0; cursor: pointer; transition: transform 0.25s var(--ease), color 0.2s; }
 button.notify-art:hover { transform: translate(-1px, -1px); color: var(--chalk); }
@@ -1518,4 +1518,11 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
   .intro-enter { top: calc(45.5vh + 15vw + 8px); top: calc(45.5svh + 15vw + 8px); }
   .intro-line { bottom: calc(10vh + env(safe-area-inset-bottom, 0px)); bottom: calc(10svh + env(safe-area-inset-bottom, 0px)); }
   .intro-credits { bottom: calc(4vh + env(safe-area-inset-bottom, 0px)); bottom: calc(4svh + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* phones: the city takes whatever height the credits line leaves, however many lines it wraps to */
+@media (max-width: 767px) {
+  body:not(.is-host) .frame { display: flex; flex-direction: column; height: 100dvh; }
+  body:not(.is-host) .stage { flex: 1 1 auto; height: auto; min-height: 0; }
+  body:not(.is-host) .credits { flex: none; }
 }
