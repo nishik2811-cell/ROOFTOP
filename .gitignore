@@ -1,5 +1,6 @@
 # build output
 android/build/
+bin/
 *.idsig
 *.class
 

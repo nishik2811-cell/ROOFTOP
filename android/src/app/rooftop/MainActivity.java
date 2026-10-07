@@ -41,8 +41,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        java.util.List<String> perms = new java.util.ArrayList<>();
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 0);
+            perms.add(Manifest.permission.POST_NOTIFICATIONS);
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
+            perms.add(Manifest.permission.CAMERA);
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+            perms.add(Manifest.permission.RECORD_AUDIO);
+        if (!perms.isEmpty())
+            requestPermissions(perms.toArray(new String[0]), 0);
         startForegroundService(new Intent(this, RooftopService.class));
 
         getWindow().setStatusBarColor(Color.parseColor("#171615"));
@@ -55,6 +62,7 @@ public class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(false);
+        settings.setMediaPlaybackRequiresUserGesture(false);
 
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -75,6 +83,11 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final android.webkit.PermissionRequest request) {
+                runOnUiThread(() -> request.grant(request.getResources()));
+            }
+
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (pendingPick != null) pendingPick.onReceiveValue(null);

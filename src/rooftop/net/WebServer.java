@@ -189,6 +189,14 @@ public class WebServer {
                 chatSend(req, res, visitorId);
             }
             case "/chat" -> res.header("Cache-Control", "no-store").send(200, JSON, chatJson(req, visitorId));
+            case "/call/signal" -> {
+                if (!post) {
+                    res.send(405, TEXT, "POST only");
+                    return;
+                }
+                callSignal(req, res, visitorId);
+            }
+            case "/call/poll" -> res.header("Cache-Control", "no-store").send(200, JSON, callPollJson(req, visitorId));
             case "/clip" -> {
                 if (local) res.send(200, TEXT, app.clipboard());
                 else res.send(404, TEXT, "not found");
@@ -397,6 +405,34 @@ public class WebServer {
         return "{\"latest\":" + app.chat().latest() + ",\"envelopes\":" + out + "}";
     }
 
+    private void callSignal(Http.Request req, Http.Response res, String visitorId) throws IOException {
+        String to = req.query.getOrDefault("to", "").trim();
+        String type = req.query.getOrDefault("type", "").trim();
+        if (to.isEmpty() || type.isEmpty()) {
+            res.send(400, TEXT, "missing to or type");
+            return;
+        }
+        String data = new String(rooftop.util.Streams.readUpTo(req.body, 64 * 1024), StandardCharsets.UTF_8);
+        long seq = app.callBox().add(visitorId, to, type, data);
+        app.changed();
+        res.header("Cache-Control", "no-store").send(200, JSON, "{\"ok\":true,\"seq\":" + seq + "}");
+    }
+
+    private String callPollJson(Http.Request req, String visitorId) {
+        long after;
+        try {
+            after = Long.parseLong(req.query.getOrDefault("after", "0"));
+        } catch (NumberFormatException e) {
+            after = 0;
+        }
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        for (rooftop.model.CallBox.Signal s : app.callBox().since(after, visitorId)) {
+            out.add("{\"seq\":" + s.seq() + ",\"from\":" + Texts.json(s.from()) + ",\"to\":" + Texts.json(s.to())
+                    + ",\"type\":" + Texts.json(s.type()) + ",\"data\":" + Texts.json(s.data()) + ",\"at\":" + s.at() + "}");
+        }
+        return "{\"latest\":" + app.callBox().latest() + ",\"signals\":" + out + "}";
+    }
+
     /** A device with an end-to-end key: a connected browser, or this PC while its own page is open. */
     private boolean canReceiveSealed(String id) {
         if (app.me().id().equals(id)) return hostPageOpen() && !app.me().publicKey().isEmpty();
@@ -474,6 +510,7 @@ public class WebServer {
                 + ",\"devices\":" + devices + ",\"files\":" + files + ",\"texts\":" + texts + ",\"sealed\":" + sealed
                 + ",\"historyAt\":" + (history.isEmpty() ? 0 : history.get(0).at())
                 + ",\"session\":" + Texts.json(app.session()) + ",\"meNamed\":" + app.named() + ",\"chatSeq\":" + app.chat().latest()
+                + ",\"callSeq\":" + app.callBox().latest()
                 + ",\"meKey\":" + Texts.json(canReceiveSealed(app.me().id()) ? app.me().publicKey() : "")
                 + ",\"youKey\":" + Texts.json(local ? app.me().publicKey() : app.devices().find(visitorId).map(Device::publicKey).orElse("")) + "}";
     }

@@ -200,6 +200,21 @@ public class SelfTest {
         try { guard2.checkNotBlocked("9.9.9.9"); } catch (rooftop.error.WrongPinException e) { shutOut = e.isBlocked(); }
         check(shutOut, "after 10 failed handshakes that PC is shut out");
 
+        // Video call signaling
+        rooftop.model.CallBox cb = new rooftop.model.CallBox();
+        long s1 = cb.add("web 123", "host", "invite", "{\"fromName\":\"Phone\"}");
+        long s2 = cb.add("host", "web 123", "accepted", "{}");
+        long s3 = cb.add("web 999", "web 888", "invite", "{}");
+        var hostSignals = cb.since(0, "host");
+        var phoneSignals = cb.since(0, "web 123");
+        var otherSignals = cb.since(0, "web 777");
+        check(hostSignals.size() == 1 && hostSignals.get(0).seq() == s1 && "invite".equals(hostSignals.get(0).type()),
+                "CallBox routes invite from phone to host PC");
+        check(phoneSignals.size() == 1 && phoneSignals.get(0).seq() == s2 && "accepted".equals(phoneSignals.get(0).type()),
+                "CallBox routes accepted from host PC to phone");
+        check(otherSignals.isEmpty(), "CallBox keeps signals private to intended recipient");
+        check(cb.since(s1, "host").isEmpty(), "CallBox after sequence filtering works");
+
         System.out.println("all checks passed");
     }
 

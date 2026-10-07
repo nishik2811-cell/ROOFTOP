@@ -18,6 +18,7 @@ Made by **Nishita, Aryan and Keshav**.
 - **Smarter sending:** pick as many files as you like, any time. Three move at once, small ones go first (a big file never waits more than 20 s behind them), and each can be cancelled or retried. A tray shows live speed, time left and a speed graph.
 - **Compression only when it helps:** text-like files are packed on the way (in the browser, or between PCs) if a sample actually shrinks; photos, videos and archives are sent as they are.
 - **Chat, end-to-end encrypted:** a room chat for everyone, personal chats, and named groups anyone can start. Unread counts, "is typing…", clickable links, and a speech bubble over the city when a message comes in. Messages to Everyone or to the PC also land on the PC's clipboard. Everything is cleared when the session ends.
+- **Video calls, offline peer-to-peer:** direct WebRTC video and audio calls between PCs and phones over the local Wi-Fi or mobile hotspot. No internet, no external STUN/TURN servers, and no accounts. Includes camera toggle, mic mute, camera flipping, ringtones, and call timer.
 - **Custom names** for every phone and PC, remembered across restarts.
 - **History** of every file sent and received in the session, with speed, also after the file is removed.
 - **Notifications** when a file or message arrives while Rooftop is in the background (and a count in the tab title).

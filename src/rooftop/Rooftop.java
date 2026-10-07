@@ -29,6 +29,7 @@ public class Rooftop {
     private final ActivityLog log = new ActivityLog();
     private final History history = new History();
     private final rooftop.model.ChatBox chat = new rooftop.model.ChatBox();
+    private final rooftop.model.CallBox callBox = new rooftop.model.CallBox();
     private volatile String session = newSessionId(); // browsers make a new end-to-end key whenever this changes
     private final SendQueue sendQueue = new SendQueue(this);
     private final WebServer web = new WebServer(this);
@@ -105,6 +106,7 @@ public class Rooftop {
         sealed.clear();
         history.clear();
         chat.clear();
+        callBox.clear();
         me.clearPublicKey();
         session = newSessionId();
         log.add("new session: PIN " + pins.pin() + ", " + phones + " phone(s) disconnected, " + files + " file(s) removed");
@@ -148,6 +150,10 @@ public class Rooftop {
 
     public rooftop.model.ChatBox chat() {
         return chat;
+    }
+
+    public rooftop.model.CallBox callBox() {
+        return callBox;
     }
 
     public History history() {
