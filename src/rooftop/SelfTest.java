@@ -57,6 +57,22 @@ public class SelfTest {
         String second = inbox.store("a.txt", new ByteArrayInputStream(one), 3, "test", new Progress(3)).name();
         check(second.equals("a (2).txt"), "second a.txt saved as a (2).txt, got " + second);
 
+        // resuming: a connection that dies halfway keeps what arrived, and the next try carries on from there
+        byte[] big = new byte[300_000];
+        new Random(3).nextBytes(big);
+        String id = "0123456789abcdef0123456789abcdef";
+        InputStream dying = new ByteArrayInputStream(big, 0, 120_000); // ends early, like a dropped Wi-Fi
+        boolean cut = false;
+        try { inbox.append(id, 0, dying, big.length, new Progress(big.length)); } catch (java.io.EOFException e) { cut = true; }
+        long kept = inbox.received(id);
+        boolean refused = false;
+        try { inbox.append(id, 0, new ByteArrayInputStream(big), big.length, new Progress(big.length)); }
+        catch (rooftop.error.OffsetMismatchException e) { refused = e.expected() == kept; }
+        inbox.append(id, kept, new ByteArrayInputStream(big, (int) kept, big.length - (int) kept), big.length - kept, new Progress(big.length));
+        String resumed = inbox.finish(id, "big.bin", big.length, "test", "", "*").name();
+        check(cut && kept == 120_000 && refused && Arrays.equals(Files.readAllBytes(dir.resolve(resumed)), big),
+                "dropped transfer resumes at byte " + kept + " and the file is identical");
+
         // encrypted channel: 1 MB survives the trip byte for byte
         byte[] payload = new byte[1 << 20];
         new Random(7).nextBytes(payload);

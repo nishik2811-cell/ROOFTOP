@@ -19,6 +19,7 @@ import java.util.concurrent.Executors;
 import javax.net.ssl.SSLContext;
 import rooftop.Rooftop;
 import rooftop.error.InvalidFileNameException;
+import rooftop.error.OffsetMismatchException;
 import rooftop.error.WrongPinException;
 import rooftop.model.NetworkDevice;
 import rooftop.model.PhoneClient;
@@ -125,6 +126,7 @@ public class WebServer {
             case "/upload" -> {
                 if (!post) res.send(405, TEXT, "POST only");
                 else if (req.length < 0) res.send(411, TEXT, "Content-Length required");
+                else if (req.query.containsKey("key")) uploadPiece(req, res, visitor, visitorId);
                 else {
                     String to = recipient(req.query.get("to"));
                     long started = System.nanoTime();
@@ -173,6 +175,45 @@ public class WebServer {
                 else res.send(404, TEXT, "not found");
             }
         }
+    }
+
+    /**
+     * Resumable upload, one piece per request: ?name&size&key&offset&to. The browser sends a few MB at a time;
+     * if the connection drops it asks again from the same offset, and a 409 tells it where we really are.
+     */
+    private void uploadPiece(Http.Request req, Http.Response res, String visitor, String visitorId) throws IOException {
+        long size, offset;
+        try {
+            size = Long.parseLong(req.query.getOrDefault("size", "-1"));
+            offset = Long.parseLong(req.query.getOrDefault("offset", "-1"));
+        } catch (NumberFormatException e) {
+            res.send(400, TEXT, "bad size or offset");
+            return;
+        }
+        if (size < 0 || offset < 0 || offset + req.length > size) {
+            res.send(400, TEXT, "bad size or offset");
+            return;
+        }
+        // the id mixes in who is sending, so two phones with the same file never write into each other's upload
+        String id = Texts.sha256(visitorId + "|" + req.query.get("key")).substring(0, 32);
+        long started = System.nanoTime();
+        try {
+            app.inbox().append(id, offset, req.body, req.length, new Progress(req.length));
+        } catch (OffsetMismatchException e) {
+            req.body.skip(req.length); // read the piece anyway, or the browser sees a reset instead of our answer
+            res.send(409, JSON, "{\"offset\":" + e.expected() + "}");
+            return;
+        }
+        long have = offset + req.length;
+        if (have < size) {
+            res.send(200, JSON, "{\"offset\":" + have + "}");
+            return;
+        }
+        String to = recipient(req.query.get("to"));
+        ReceivedItem item = app.inbox().finish(id, req.query.get("name"), size, visitor, visitorId, to);
+        app.log().add(visitor + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(size)
+                + (offset > 0 ? ", last piece " + Texts.speed(req.length, System.nanoTime() - started) : "") + ")");
+        res.send(200, JSON, "{\"done\":true,\"name\":" + Texts.json(item.name()) + "}");
     }
 
     private PhoneClient visitor(Http.Request req) {

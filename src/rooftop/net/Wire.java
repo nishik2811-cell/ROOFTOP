@@ -14,22 +14,30 @@ public final class Wire {
     public static final int ACCEPT = 'Y';
     public static final int REJECT = 'N';
     public static final int DONE = 'D';
+    public static final int DAMAGED = 'X'; // the file's SHA-256 did not match: the receiver threw it away
     public static final int MAX_TEXT = 1 << 20;
 
     private Wire() {
     }
 
-    /** First thing sent on every transfer. */
-    public record Header(String type, String pin, String name, long size) {
+    /**
+     * First thing sent on every transfer. {@code key} names the file on the sender's side (name, size, last change),
+     * so a second try of the same file can resume where the first one stopped.
+     *
+     * <p>File transfer: header, then Y + the 8-byte offset to resume from (or N), then the bytes from that offset,
+     * then the 32-byte SHA-256 of the whole file, then D (saved) or X (damaged, discarded).
+     */
+    public record Header(String type, String pin, String name, long size, String key) {
         public void write(DataOutputStream out) throws IOException {
             out.writeUTF(type);
             out.writeUTF(pin);
             out.writeUTF(name);
             out.writeLong(size);
+            out.writeUTF(key);
         }
 
         public static Header read(DataInputStream in) throws IOException {
-            return new Header(in.readUTF(), in.readUTF(), in.readUTF(), in.readLong());
+            return new Header(in.readUTF(), in.readUTF(), in.readUTF(), in.readLong(), in.readUTF());
         }
     }
 }

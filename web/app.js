@@ -1318,18 +1318,53 @@ async function upload(list) {
   }
 }
 
-function sendOne(file, onProgress) {
+// Files go up in 4 MB pieces. If the Wi-Fi drops, each piece is retried; the PC keeps what already arrived,
+// so retrying (or sending the same file again later) carries on from there instead of starting over.
+const PIECE = 4 * 1024 * 1024;
+const RETRIES = 3;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function sendOne(file, onProgress) {
+  const key = `${file.name}|${file.size}|${file.lastModified}`;
+  let offset = 0, failures = 0;
+  for (;;) {
+    const end = Math.min(file.size, offset + PIECE);
+    let res;
+    try {
+      res = await sendPiece(file, key, offset, end, (loaded) => onProgress(file.size ? (offset + loaded) / file.size : 1));
+    } catch (e) {
+      if (e instanceof PinError || e.fatal) throw e;
+      if (++failures > RETRIES) throw new Error('connection lost. Send the same file again to continue where it stopped');
+      toast(`Connection hiccup, retrying (${failures} of ${RETRIES})`);
+      await sleep(1000 * failures);
+      continue; // same offset; if the PC got more than we think, it answers 409 with the right place
+    }
+    failures = 0;
+    if (res.done) return res;
+    if (res.status === 409 && res.offset > offset) toast('Resuming where it stopped');
+    offset = res.offset;
+  }
+}
+
+function sendPiece(file, key, offset, end, onLoaded) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open('POST', withPin('/api/upload?name=' + encodeURIComponent(file.name) + '&to=' + encodeURIComponent($('#sendTo').value)));
-    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    const q = `?name=${encodeURIComponent(file.name)}&size=${file.size}&key=${encodeURIComponent(key)}&offset=${offset}&to=${encodeURIComponent($('#sendTo').value)}`;
+    x.open('POST', withPin('/api/upload' + q));
+    x.upload.onprogress = (e) => onLoaded(e.loaded);
     x.onload = () => {
-      if (x.status === 200) resolve();
+      let body = {};
+      try { body = JSON.parse(x.responseText); } catch { /* not JSON */ }
+      if (x.status === 200) resolve(body);
+      else if (x.status === 409) resolve({ offset: body.offset, status: 409 }); // the PC tells us where to carry on
       else if (x.status === 403) { askPin('That PIN did not work.'); reject(new PinError()); }
-      else reject(new Error(x.responseText || 'HTTP ' + x.status));
+      else if (x.status >= 500) reject(new Error('the PC had a problem'));
+      else reject(Object.assign(new Error(x.responseText || 'HTTP ' + x.status), { fatal: true }));
     };
     x.onerror = () => reject(new Error('connection lost'));
-    x.send(file);
+    x.ontimeout = () => reject(new Error('timed out'));
+    x.timeout = 120000;
+    x.send(file.slice(offset, end));
   });
 }
 

@@ -37,6 +37,22 @@ public final class Texts {
         return String.format(Locale.ROOT, "%.1f MB/s", bytes / 1e6 / (nanos / 1e9));
     }
 
+    /** Lower-case hex of some bytes (java.util.HexFormat is missing on older Android). */
+    public static String hex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+        return sb.toString();
+    }
+
+    /** SHA-256 of a string, as hex. Used to turn "who + which file" into a safe id for a resumable transfer. */
+    public static String sha256(String s) {
+        try {
+            return hex(java.security.MessageDigest.getInstance("SHA-256").digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("every Java has SHA-256", e);
+        }
+    }
+
     /** Quotes and escapes a string for hand-built JSON. */
     public static String json(String s) {
         StringBuilder sb = new StringBuilder(s.length() + 2).append('"');

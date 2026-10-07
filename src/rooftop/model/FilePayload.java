@@ -31,6 +31,16 @@ public class FilePayload extends Payload {
         return Files.newInputStream(path);
     }
 
+    /** Overrides Payload: an edited file with the same name and size must not resume onto old bytes. */
+    @Override
+    public String resumeKey() {
+        try {
+            return super.resumeKey() + "|" + Files.getLastModifiedTime(path).toMillis();
+        } catch (IOException e) {
+            return super.resumeKey();
+        }
+    }
+
     @Override
     public String wireType() {
         return FILE;

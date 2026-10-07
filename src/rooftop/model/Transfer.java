@@ -30,6 +30,11 @@ public class Transfer {
         return progress;
     }
 
+    /** A fresh attempt of the same send, with its own progress. */
+    public Transfer retry() {
+        return new Transfer(target, payload, pin);
+    }
+
     private volatile long nanos = -1;
 
     /** Called once the receiver confirmed: the measured wall-clock time of the data transfer. */

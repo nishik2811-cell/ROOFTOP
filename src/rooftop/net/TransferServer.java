@@ -2,11 +2,14 @@ package rooftop.net;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
 import rooftop.Rooftop;
 import rooftop.error.RooftopException;
 import rooftop.error.TransferFailedException;
@@ -80,12 +83,43 @@ public class TransferServer extends Thread {
             byte[] bytes = Streams.readFully(in, (int) header.size());
             app.receiveText(new String(bytes, StandardCharsets.UTF_8), from);
         } else {
-            app.log().add("receiving " + header.name() + " (" + Texts.humanSize(header.size()) + ") from " + from);
-            long started = System.nanoTime();
-            ReceivedItem item = app.inbox().store(header.name(), in, header.size(), from, new Progress(header.size()));
-            app.log().add("saved " + item.name() + " from " + from + ", " + Texts.speed(header.size(), System.nanoTime() - started));
+            receiveFile(header, in, out, ip, from);
+            return;
         }
         out.write(Wire.DONE);
         out.flush();
+    }
+
+    /** Resumes from whatever arrived last time, then checks the SHA-256 of the whole file before showing it. */
+    private void receiveFile(Wire.Header header, DataInputStream in, OutputStream rawOut, String ip, String from)
+            throws IOException, RooftopException {
+        DataOutputStream out = new DataOutputStream(rawOut);
+        long size = header.size();
+        String id = Texts.sha256(ip + "|" + header.key()).substring(0, 32);
+        long have = app.inbox().received(id);
+        if (have > size) {
+            app.inbox().discard(id);
+            have = 0;
+        }
+        out.writeLong(have);
+        out.flush();
+        app.log().add((have > 0 ? "resuming " + header.name() + " at " + Texts.humanSize(have) + " of " : "receiving " + header.name() + " (")
+                + Texts.humanSize(size) + (have > 0 ? "" : ")") + " from " + from);
+
+        MessageDigest sha = TransferClient.sha256();
+        app.inbox().digestReceived(id, sha);
+        long started = System.nanoTime();
+        app.inbox().append(id, have, new DigestInputStream(in, sha), size - have, new Progress(size - have));
+        byte[] expected = Streams.readFully(in, 32);
+        if (!MessageDigest.isEqual(expected, sha.digest())) {
+            app.inbox().discard(id);
+            out.write(Wire.DAMAGED);
+            out.flush();
+            throw new TransferFailedException(header.name() + " from " + from + " arrived damaged, discarded");
+        }
+        ReceivedItem item = app.inbox().finish(id, header.name(), size, from, "", ReceivedItem.EVERYONE);
+        out.write(Wire.DONE);
+        out.flush();
+        app.log().add("saved " + item.name() + " from " + from + " (SHA-256 checked), " + Texts.speed(size - have, System.nanoTime() - started));
     }
 }

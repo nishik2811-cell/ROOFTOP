@@ -5,6 +5,11 @@ public abstract class Payload implements Transferable, Comparable<Payload> {
     public static final String FILE = "FILE";
     public static final String TEXT = "TEXT";
 
+    /** Identifies this exact content for resuming. Subclasses that know more (a file's last change) refine it. */
+    public String resumeKey() {
+        return name() + "|" + size();
+    }
+
     /** Tag written on the wire so the receiver knows how to treat the bytes. */
     public abstract String wireType();
 
