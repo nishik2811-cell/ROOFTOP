@@ -17,6 +17,17 @@ public abstract class Device {
         return name;
     }
 
+    private volatile String publicKey = ""; // the browser's end-to-end key (base64url), if it has one
+
+    public String publicKey() {
+        return publicKey;
+    }
+
+    /** A P-256 public key is 65 bytes, 87 characters of base64url. Anything else is ignored. */
+    public void setPublicKey(String key) {
+        if (key != null && key.matches("[A-Za-z0-9_-]{80,100}")) publicKey = key;
+    }
+
     /** Short label for the radar and the phone page, e.g. "PC" or "PHONE". */
     public abstract String kind();
 

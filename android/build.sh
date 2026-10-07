@@ -16,7 +16,7 @@ export PATH="$JDK/bin:$PATH"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/gen" "$OUT/classes" "$OUT/assets/web"
-cp web/index.html web/style.css web/app.js web/display.woff2 "$OUT/assets/web/"
+cp web/index.html web/style.css web/app.js web/e2e.js web/display.woff2 "$OUT/assets/web/"
 
 echo "1/5 resources"
 "$BT/aapt2" compile --dir android/res -o "$OUT/res.zip"

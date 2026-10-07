@@ -1,6 +1,6 @@
 # Rooftop
 
-**Offline AirDrop for every device.** Send files and clipboard text between PCs and phones on the same Wi-Fi or hotspot. No internet, no cables, no accounts, nothing to install on phones.
+**AllDrop: AirDrop for *all* your devices.** iPhone to Windows, Android to Mac, Linux to anything. Files and clipboard text fly across the same Wi-Fi or hotspot, with no internet, no cables, no accounts and nothing to install on phones.
 
 Made by **Nishita, Aryan and Keshav** for the OOP using Java lab (24B15CS215).
 
@@ -12,6 +12,8 @@ Made by **Nishita, Aryan and Keshav** for the OOP using Java lab (24B15CS215).
 - Phones join by scanning a QR code, with no app needed.
 - Send files and text to **everyone** or to **one chosen device**.
 - Encrypted transfers: HTTPS for phones, ECDH + AES-256-GCM between PCs.
+- **Private files, end-to-end encrypted:** a file sent to one phone is sealed in the sender's browser and only the recipient's browser can open it. The PC in the middle stores only ciphertext and deletes it once the recipient saves the file. Both screens show a 6-digit safety code to compare.
+- **Reliable transfers:** big files go in pieces, so a dropped Wi-Fi resumes instead of starting over; failed sends retry automatically; PC-to-PC files are checked with SHA-256.
 - A 6-digit PIN protects every session. **End session, start new** (PC panel) gives a fresh PIN, disconnects all phones and deletes received files and messages.
 - Remove any file with the **×** on it (in the city or the inbox). Phones can only remove files they sent.
 - Received files appear on billboards and walls of a small explorable city, with a day and night mode.
@@ -111,8 +113,10 @@ Other folders:
 | Access | Random 6-digit PIN per run (no palindromes); 10 wrong tries blocks that device |
 | File names | `../../x` becomes `x`; duplicates become `name (2).ext`; half-received files are deleted |
 | Downloads | Served with `Content-Security-Policy: sandbox` and `nosniff` |
+| Private files (one device) | Sealed in the browser: ECDH P-256 with a one-time key, HKDF-SHA-256, AES-256-GCM in 1 MB chunks (chunk number and "last chunk" flag in each nonce, so nothing can be reordered or cut off). The private key is non-extractable and stays in the browser (IndexedDB). The PC keeps only ciphertext in a hidden temp folder, never in the inbox, city, log or terminal, and deletes it after the recipient's acknowledgement, at session end, or after 1 hour |
+| Integrity | PC-to-PC files carry a SHA-256 of the whole file; a mismatch discards the copy and the sender retries |
 
-**Known limit:** the certificate is self-signed, so an attacker on the same Wi-Fi who can redirect traffic could pose as the host. Passive sniffing sees nothing useful.
+**Known limits:** the certificate is self-signed, so an attacker on the same Wi-Fi who can redirect traffic could pose as the host. Passive sniffing sees nothing useful. For private files, the page itself is served by the host, so a host running modified Rooftop code could serve a page that leaks keys; the safety code catches a swapped key, not a swapped page.
 
 ## Terminal commands
 
@@ -134,6 +138,7 @@ Type these in the window where Rooftop runs:
 ```bash
 java src/rooftop/SelfTest.java      # PIN, file names, encryption, tamper checks
 java src/rooftop/Benchmark.java     # transfer speed on this PC
+node test/e2e-check.mjs             # with Rooftop running: proves the PC never holds a readable private file
 ```
 
 For real Wi-Fi speed, run `java src/rooftop/Benchmark.java serve` on one PC and `java src/rooftop/Benchmark.java to <ip>` on another.

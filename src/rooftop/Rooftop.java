@@ -5,6 +5,7 @@ import rooftop.model.Inbox;
 import rooftop.model.NetworkDevice;
 import rooftop.model.PhoneClient;
 import rooftop.model.ReceivedText;
+import rooftop.model.SealedBox;
 import rooftop.model.ThisDevice;
 import rooftop.net.Discovery;
 import rooftop.net.Network;
@@ -28,11 +29,14 @@ public class Rooftop {
     private final SendQueue sendQueue = new SendQueue(this);
     private final WebServer web = new WebServer(this);
     private final Inbox inbox;
+    private final SealedBox sealed;
 
     public Rooftop(Platform platform) throws IOException {
         this.platform = platform;
         this.me = new ThisDevice(platform.deviceName());
         this.inbox = new Inbox(platform.inboxDir());
+        // a hidden temp folder, away from the inbox, for end-to-end encrypted files passing through
+        this.sealed = new SealedBox(java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"), "rooftop-sealed-" + System.getProperty("user.name", "app")));
     }
 
     public void start() throws IOException {
@@ -67,6 +71,7 @@ public class Rooftop {
         pins.renew();
         int phones = devices.removeType(PhoneClient.class);
         int files = inbox.newSession();
+        sealed.clear();
         log.add("new session: PIN " + pins.pin() + ", " + phones + " phone(s) disconnected, " + files + " file(s) removed");
     }
 
@@ -98,6 +103,10 @@ public class Rooftop {
 
     public Inbox inbox() {
         return inbox;
+    }
+
+    public SealedBox sealed() {
+        return sealed;
     }
 
     public SendQueue sendQueue() {

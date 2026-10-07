@@ -21,10 +21,12 @@ import rooftop.Rooftop;
 import rooftop.error.InvalidFileNameException;
 import rooftop.error.OffsetMismatchException;
 import rooftop.error.WrongPinException;
+import rooftop.model.Device;
 import rooftop.model.NetworkDevice;
 import rooftop.model.PhoneClient;
 import rooftop.model.Progress;
 import rooftop.model.ReceivedItem;
+import rooftop.model.SealedBox;
 import rooftop.model.ReceivedText;
 import rooftop.security.Certificates;
 import rooftop.security.FileNames;
@@ -46,6 +48,7 @@ public class WebServer {
         PAGES.put("/", new String[]{"index.html", "text/html; charset=utf-8"});
         PAGES.put("/style.css", new String[]{"style.css", "text/css; charset=utf-8"});
         PAGES.put("/app.js", new String[]{"app.js", "text/javascript; charset=utf-8"});
+        PAGES.put("/e2e.js", new String[]{"e2e.js", "text/javascript; charset=utf-8"});
         PAGES.put("/display.woff2", new String[]{"display.woff2", "font/woff2"}); // Big Shoulders Display (OFL), for the intro
         // shown inline so murals can use them; everything else (html, svg, ...) is a plain download
         IMAGE_TYPES.put("jpg", "image/jpeg");
@@ -146,6 +149,19 @@ public class WebServer {
                 res.send(200, TEXT, "ok");
             }
             case "/clip" -> res.send(200, TEXT, app.clipboard());
+            case "/key" -> { // a browser registers its end-to-end public key
+                if (!post) res.send(405, TEXT, "POST only");
+                else {
+                    String key = new String(rooftop.util.Streams.readUpTo(req.body, 200), StandardCharsets.US_ASCII).trim();
+                    (local ? app.me() : guest).setPublicKey(key);
+                    res.send(200, TEXT, "ok");
+                }
+            }
+            case "/sealed/upload" -> {
+                if (!post) res.send(405, TEXT, "POST only");
+                else if (req.length < 0) res.send(411, TEXT, "Content-Length required");
+                else sealedPiece(req, res, visitorId);
+            }
             case "/remove" -> {
                 String name = req.query.get("name");
                 boolean allowed = post && name != null && app.inbox().newestFirst().stream()
@@ -166,7 +182,16 @@ public class WebServer {
                 }
             }
             default -> {
-                if (route.startsWith("/files/")) {
+                if (route.startsWith("/sealed/")) { // /sealed/<id> to collect, /sealed/<id>/ack once saved
+                    String rest = route.substring("/sealed/".length());
+                    if (rest.endsWith("/ack") && post) {
+                        boolean gone = app.sealed().acknowledge(rest.substring(0, rest.length() - 4), visitorId);
+                        res.header("Cache-Control", "no-store").send(gone ? 200 : 404, TEXT, gone ? "ok" : "not found");
+                    } else {
+                        Path p = app.sealed().collect(rest, visitorId);
+                        res.header("Cache-Control", "no-store").sendFile("application/octet-stream", p);
+                    }
+                } else if (route.startsWith("/files/")) {
                     String name = route.substring("/files/".length());
                     boolean allowed = app.inbox().newestFirst().stream().anyMatch(i -> i.name().equals(name) && i.visibleTo(visitorId));
                     if (allowed) serveFile(req, res, name);
@@ -216,6 +241,36 @@ public class WebServer {
         res.send(200, JSON, "{\"done\":true,\"name\":" + Texts.json(item.name()) + "}");
     }
 
+    /**
+     * A piece of an end-to-end sealed file for one device. Deliberately silent: no log line, no inbox entry.
+     * The recipient must be a connected browser with a key; the PC itself never takes sealed files.
+     */
+    private void sealedPiece(Http.Request req, Http.Response res, String visitorId) throws IOException {
+        String to = req.query.getOrDefault("to", "");
+        boolean recipientOk = app.devices().find(to).filter(d -> !d.publicKey().isEmpty()).isPresent() && !to.equals(visitorId);
+        long size, offset;
+        try {
+            size = Long.parseLong(req.query.getOrDefault("size", "-1"));
+            offset = Long.parseLong(req.query.getOrDefault("offset", "-1"));
+        } catch (NumberFormatException e) {
+            size = offset = -1;
+        }
+        if (!recipientOk || size < 0 || offset < 0 || offset + req.length > size || !req.query.containsKey("key")) {
+            req.body.skip(req.length);
+            res.send(400, TEXT, recipientOk ? "bad size or offset" : "that device cannot receive encrypted files right now");
+            return;
+        }
+        String id = Texts.sha256(visitorId + "|" + req.query.get("key")).substring(0, 32);
+        try {
+            app.sealed().append(id, to, size, offset, req.body, req.length);
+        } catch (OffsetMismatchException e) {
+            req.body.skip(req.length);
+            res.send(409, JSON, "{\"offset\":" + e.expected() + "}");
+            return;
+        }
+        res.header("Cache-Control", "no-store").send(200, JSON, "{\"offset\":" + (offset + req.length) + ",\"done\":" + (offset + req.length == size) + "}");
+    }
+
     private PhoneClient visitor(Http.Request req) {
         String ua = req.header("User-Agent") != null ? req.header("User-Agent") : "";
         NetworkDevice device = app.devices().getOrAdd("web " + req.remote.getHostAddress(), () -> new PhoneClient(ua, req.remote));
@@ -247,7 +302,8 @@ public class WebServer {
         online.removeIf(d -> !d.isOnline() || d.name().equals(visitor));
         online.sort(Comparator.comparing(NetworkDevice::kind).thenComparing(NetworkDevice::name));
         for (NetworkDevice d : online)
-            devices.add("{\"id\":" + Texts.json(d.id()) + ",\"name\":" + Texts.json(d.name()) + ",\"kind\":" + Texts.json(d.kind()) + "}");
+            devices.add("{\"id\":" + Texts.json(d.id()) + ",\"name\":" + Texts.json(d.name()) + ",\"kind\":" + Texts.json(d.kind())
+                    + ",\"key\":" + Texts.json(d.publicKey()) + "}");
 
         StringJoiner files = new StringJoiner(",", "[", "]");
         for (ReceivedItem i : app.inbox().newestFirst()) {
@@ -257,13 +313,22 @@ public class WebServer {
                     + ",\"removable\":" + canRemove(i, visitorId, local) + "}");
         }
 
+        StringJoiner sealed = new StringJoiner(",", "[", "]"); // only ever this visitor's own, and never for the host
+        try {
+            for (SealedBox.Waiting w : app.sealed().waitingFor(visitorId))
+                sealed.add("{\"id\":" + Texts.json(w.id()) + ",\"size\":" + w.size() + ",\"at\":" + w.at() + "}");
+        } catch (IOException e) {
+            // nothing to offer this time; the next poll tries again
+        }
+
         StringJoiner texts = new StringJoiner(",", "[", "]");
         for (ReceivedText t : app.inbox().texts())
             texts.add("{\"text\":" + Texts.json(t.text()) + ",\"from\":" + Texts.json(t.from()) + ",\"at\":" + t.at() + "}");
 
         return "{\"me\":" + Texts.json(app.me().name()) + ",\"meId\":" + Texts.json(app.me().id()) + ",\"you\":" + Texts.json(visitor)
                 + ",\"youId\":" + Texts.json(visitorId) + ",\"local\":" + local
-                + ",\"devices\":" + devices + ",\"files\":" + files + ",\"texts\":" + texts + "}";
+                + ",\"devices\":" + devices + ",\"files\":" + files + ",\"texts\":" + texts + ",\"sealed\":" + sealed
+                + ",\"youKey\":" + Texts.json(local ? app.me().publicKey() : app.devices().find(visitorId).map(Device::publicKey).orElse("")) + "}";
     }
 
     private String connectJson() throws IOException {

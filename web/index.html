@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ead3bf">
 <meta name="referrer" content="no-referrer">
-<title>Rooftop</title>
+<title>Rooftop · AllDrop for all your devices</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -31,7 +31,7 @@
     <span class="intro-right"><span class="intro-corner">[offline, same Wi-Fi]</span><span style="--i:2">Rooftop</span></span>
   </p>
   <button class="pill pill-primary intro-enter" type="button" id="introEnter"><span class="disc"><svg class="i"><use href="#i-right"/></svg></span>Enter the city</button>
-  <p class="intro-line">No cables. No cloud. No app.<br>Just your files, flying from roof to roof.</p>
+  <p class="intro-line"><b>AllDrop</b>: AirDrop for all your devices.<br>No cables. No cloud. No app.</p>
   <p class="intro-credits">Made by Nishita, Aryan and Keshav</p>
 </div>
 
@@ -82,6 +82,14 @@
       <button class="tx-open" type="button" id="txCopy" hidden>Copy</button>
     </aside>
 
+    <aside class="transmission sealed-card" id="sealedCard" aria-live="polite" hidden>
+      <p class="tx-title"><svg class="i"><use href="#i-lock"/></svg> Private file, end-to-end encrypted</p>
+      <p class="tx-body" id="sealedBody"></p>
+      <button class="tx-open" type="button" id="sealedOpen">Open</button>
+      <a class="tx-open" id="sealedSave" hidden>Save</a>
+      <p class="tx-code" id="sealedCode"></p>
+    </aside>
+
     <div class="bar bar-bottom">
       <label class="pill pill-to" for="sendTo">
         <span class="to-label">Send to</span>
@@ -121,7 +129,7 @@
   </aside>
 </main>
 
-<footer class="credits">Made by <b>Nishita</b>, <b>Aryan</b> and <b>Keshav</b></footer>
+<footer class="credits"><span class="credits-tag">AllDrop for all your devices</span> · Made by <b>Nishita</b>, <b>Aryan</b> and <b>Keshav</b></footer>
 
 <dialog class="sheet" id="sheet-inbox" aria-labelledby="inbox-title">
   <div class="sheet-inner">
@@ -183,6 +191,7 @@
 </dialog>
 
 <div class="ring" id="ring" aria-hidden="true" hidden></div>
+<script src="/e2e.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

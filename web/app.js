@@ -1129,6 +1129,8 @@ async function refresh() {
     }
     announceText(next.texts);
     renderSheets();
+    registerKey();
+    offerSealed(next.sealed || []);
   } catch (e) {
     if (e instanceof PinError) return; // wait for a new PIN
     if (lastOnline) toast('Lost the PC. Retrying', 0);
@@ -1286,6 +1288,11 @@ let uploading = false;
 async function upload(list) {
   if (!list.length) return;
   if (uploading) { toast('Still sending, one batch at a time'); return; }
+  const target = $('#sendTo').value;
+  if (target !== '*' && target !== state.meId && !sealedTarget()) {
+    toast('That device cannot receive private files yet. Ask them to reload Rooftop, or send to Everyone.', 6000);
+    return;
+  }
   uploading = true;
   const label = $('#sendLabel');
   const fill = $('#sendFill');
@@ -1293,14 +1300,19 @@ async function upload(list) {
   try {
     for (let i = 0; i < list.length; i++) {
       city.startFlight(list[i].name);
-      await sendOne(list[i], (p) => {
+      const send = sealedTarget() ? sendSealed : sendOne;
+      await send(list[i], (p) => {
         label.textContent = list.length > 1 ? `${i + 1} of ${list.length}  ${Math.round(p * 100)}%` : `Sending ${Math.round(p * 100)}%`;
         fill.style.transform = `scaleX(${p})`;
         city.flightProgress(p);
       });
       sent++;
     }
-    toast(sent > 1 ? `${sent} files sent to ${state.me}` : `Sent to ${state.me}`);
+    const sealedTo = sealedTarget();
+    if (sealedTo) {
+      const code = await safetyCodeFor(sealedTo.key);
+      toast(`Sent privately to ${sealedTo.name}. Safety code ${code}: it should show the same on their screen.`, 10000);
+    } else toast(sent > 1 ? `${sent} files sent to ${state.me}` : `Sent to ${state.me}`);
   } catch (e) {
     if (!(e instanceof PinError)) toast(`Upload failed: ${e.message}`, 5000);
   } finally {
@@ -1367,6 +1379,147 @@ function sendPiece(file, key, offset, end, onLoaded) {
     x.send(file.slice(offset, end));
   });
 }
+
+/* ---- end-to-end encryption for files sent to one device (crypto in e2e.js) ----
+   Each browser keeps a P-256 key pair in IndexedDB; the private half cannot be read out, not even by this page.
+   The PC only relays sealed bytes and deletes them once the recipient confirms it saved the file. */
+const E2E = window.RooftopE2E && window.crypto?.subtle ? window.RooftopE2E : null;
+let myPair = null, myRaw = null, myKey = '';
+
+function keyStore(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('rooftop', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('keys');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction('keys', mode);
+      const r = fn(tx.objectStore('keys'));
+      tx.oncomplete = () => resolve(r?.result);
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+}
+
+async function loadKeys() {
+  if (!E2E) return;
+  try {
+    myPair = await keyStore('readonly', (s) => s.get('me'));
+  } catch { /* private browsing: a key for this visit only */ }
+  if (!myPair) {
+    myPair = await E2E.newKeyPair();
+    try { await keyStore('readwrite', (s) => s.put(myPair, 'me')); } catch { /* kept in memory */ }
+  }
+  myRaw = await E2E.publicRaw(myPair);
+  myKey = E2E.b64(myRaw);
+}
+const keysReady = loadKeys().catch(() => { myPair = null; });
+
+async function registerKey() {
+  await keysReady;
+  if (myKey && state.youKey !== myKey) await call('/api/key', { method: 'POST', body: myKey }).catch(() => {});
+}
+
+const safetyCodeFor = (theirKey) => E2E.safetyCode(myRaw, E2E.unb64(theirKey));
+
+/** The device chosen in "Send to", if it is one browser that can receive sealed files. */
+function sealedTarget() {
+  const to = $('#sendTo').value;
+  if (!E2E || !myPair || to === '*' || to === state.meId) return null;
+  const d = state.devices.find((x) => x.id === to);
+  return d && d.key ? d : null;
+}
+
+async function sendSealed(file, onProgress) {
+  const target = sealedTarget();
+  const key = E2E.b64(crypto.getRandomValues(new Uint8Array(12))); // a new id per send: one-time keys never mix
+  const pieces = E2E.seal(file, file.name, E2E.unb64(target.key), myRaw);
+  let offset = 0, total = 0;
+  for await (const piece of pieces) {
+    if (!total) total = E2E.sealedSize(file.size, piece.length - 8);
+    for (let failures = 0; ;) {
+      try {
+        const res = await postSealed(piece, key, offset, total, target.id, (loaded) => onProgress((offset + loaded) / total));
+        if (res.offset === offset + piece.length) break;
+        if (res.offset !== offset) throw Object.assign(new Error('the PC lost track of this file'), { fatal: true });
+      } catch (e) {
+        if (e instanceof PinError || e.fatal || ++failures > RETRIES) throw e;
+        toast(`Connection hiccup, retrying (${failures} of ${RETRIES})`);
+        await sleep(1000 * failures);
+      }
+    }
+    offset += piece.length;
+  }
+}
+
+function postSealed(piece, key, offset, total, to, onLoaded) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', withPin(`/api/sealed/upload?key=${key}&offset=${offset}&size=${total}&to=${encodeURIComponent(to)}`));
+    x.upload.onprogress = (e) => onLoaded(e.loaded);
+    x.onload = () => {
+      let body = {};
+      try { body = JSON.parse(x.responseText); } catch { /* not JSON */ }
+      if (x.status === 200 || x.status === 409) resolve(body);
+      else if (x.status === 403) { askPin('That PIN did not work.'); reject(new PinError()); }
+      else reject(Object.assign(new Error(x.responseText || 'HTTP ' + x.status), { fatal: x.status < 500 }));
+    };
+    x.onerror = () => reject(new Error('connection lost'));
+    x.send(piece);
+  });
+}
+
+// Receiving: one card at a time. Open = download + decrypt here; Save = keep it; then the PC deletes its copy.
+let sealedShowing = null;
+const sealedDone = new Set();
+function offerSealed(list) {
+  if (sealedShowing || !myPair) return;
+  const next = list.find((s) => !sealedDone.has(s.id));
+  if (!next) return;
+  sealedShowing = next;
+  $('#sealedBody').textContent = `${humanSize(next.size)} waiting for you. Only this device can open it.`;
+  $('#sealedCode').textContent = '';
+  $('#sealedOpen').hidden = false;
+  $('#sealedOpen').disabled = false;
+  $('#sealedOpen').textContent = 'Open';
+  $('#sealedSave').hidden = true;
+  $('#sealedCard').hidden = false;
+}
+
+$('#sealedOpen').addEventListener('click', async () => {
+  const item = sealedShowing;
+  const btn = $('#sealedOpen');
+  btn.disabled = true;
+  try {
+    const res = await call('/api/sealed/' + item.id);
+    const out = await E2E.open(res.body.getReader(), myPair.privateKey,
+      (got) => { btn.textContent = `${Math.round((got / item.size) * 100)}%`; });
+    const sender = state.devices.find((d) => d.key === E2E.b64(out.senderRaw));
+    const code = await E2E.safetyCode(myRaw, out.senderRaw);
+    const url = URL.createObjectURL(new Blob(out.parts));
+    const save = $('#sealedSave');
+    save.href = url;
+    save.download = out.name;
+    save.textContent = 'Save';
+    save.hidden = false;
+    btn.hidden = true;
+    $('#sealedBody').textContent = `${out.name} from ${sender ? sender.name : 'a device that has left'}`;
+    $('#sealedCode').replaceChildren('Safety code ', el('b', { textContent: code }), '. It should match the sender\'s screen.');
+    save.onclick = () => setTimeout(async () => {
+      await call(`/api/sealed/${item.id}/ack`, { method: 'POST' }).catch(() => {});
+      sealedDone.add(item.id);
+      URL.revokeObjectURL(url);
+      $('#sealedCard').hidden = true;
+      sealedShowing = null;
+      toast('Saved. The PC has deleted its encrypted copy.');
+      refresh();
+    }, 1500);
+  } catch (e) {
+    if (e instanceof PinError) return;
+    btn.disabled = false;
+    btn.textContent = 'Try again';
+    $('#sealedBody').textContent = 'Could not open it: it was damaged, or it was sealed for a key this browser no longer has.';
+  }
+});
 
 // Desktop browsers: drop files anywhere on the city.
 const stage = $('#stage');
@@ -1439,8 +1592,11 @@ function renderSheets() {
   $('.you').hidden = state.local;
   $('#youName').textContent = state.you || 'this device';
   $('#pcName').textContent = state.me || 'the PC';
-  $('#deviceList').replaceChildren(...state.devices.map((d) =>
-    el('li', {}, el('span', { textContent: d.name }), el('span', { className: 'kind', textContent: d.kind }))));
+  $('#deviceList').replaceChildren(...state.devices.map((d) => {
+    const li = el('li', {}, el('span', { textContent: d.name }), el('span', { className: 'kind', textContent: d.kind }));
+    if (d.key && myKey) safetyCodeFor(d.key).then((code) => li.append(el('span', { className: 'code', textContent: `code ${code}` })));
+    return li;
+  }));
   $('#deviceList').hidden = !state.devices.length;
   $('#deviceEmpty').hidden = state.devices.length > 0;
   if (isLocal) renderHost();
