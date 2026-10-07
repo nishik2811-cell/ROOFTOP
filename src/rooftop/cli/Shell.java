@@ -159,6 +159,38 @@ public class Shell {
         RadarApplet.open(app.devices(), app.me().name());
     }
 
+    @Command(help = "open the received files folder in file manager")
+    void folder(String rest) {
+        try {
+            java.awt.Desktop desktop = java.awt.Desktop.isDesktopSupported() ? java.awt.Desktop.getDesktop() : null;
+            if (desktop != null && desktop.isSupported(java.awt.Desktop.Action.OPEN)) {
+                java.nio.file.Path dir = app.inbox().dir();
+                java.nio.file.Files.createDirectories(dir);
+                desktop.open(dir.toFile());
+                System.out.println("  opened " + dir);
+            } else {
+                System.out.println("  folder: " + app.inbox().dir());
+            }
+        } catch (Exception e) {
+            System.out.println("  could not open folder: " + e.getMessage());
+        }
+    }
+
+    @Command(help = "open Rooftop in default web browser")
+    void web(String rest) {
+        try {
+            java.awt.Desktop desktop = java.awt.Desktop.isDesktopSupported() ? java.awt.Desktop.getDesktop() : null;
+            if (desktop != null && desktop.isSupported(java.awt.Desktop.Action.BROWSE)) {
+                desktop.browse(new java.net.URI("http://localhost:" + rooftop.net.Wire.LOCAL_PORT));
+                System.out.println("  opened http://localhost:" + rooftop.net.Wire.LOCAL_PORT);
+            } else {
+                System.out.println("  open http://localhost:" + rooftop.net.Wire.LOCAL_PORT + " in your browser");
+            }
+        } catch (Exception e) {
+            System.out.println("  could not open browser: " + e.getMessage());
+        }
+    }
+
     @Command(help = "stop Rooftop")
     void quit(String rest) {
         System.exit(0);

@@ -1413,6 +1413,23 @@ let jobSeq = 0;
 let batch = 0;               // goes up each time the queue starts from idle; the button shows this batch's progress
 class Cancelled extends Error {}
 
+/* ---- screen wake lock (prevents mobile screen sleep during file transfers) ---- */
+let wakeLockSentinel = null;
+async function acquireWakeLock() {
+  if ('wakeLock' in navigator && !wakeLockSentinel) {
+    try {
+      wakeLockSentinel = await navigator.wakeLock.request('screen');
+      wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+    } catch { /* unsupported or denied */ }
+  }
+}
+function releaseWakeLock() {
+  if (wakeLockSentinel) {
+    wakeLockSentinel.release().catch(() => {});
+    wakeLockSentinel = null;
+  }
+}
+
 /** Queues files for whoever is chosen in "Send to" right now. Works any time, also while other files are sending. */
 function upload(list) {
   if (!list.length) return;
@@ -1426,7 +1443,7 @@ function upload(list) {
     return;
   }
   if (missing.length) toast(`Not sent to ${missing.join(', ')}: no key yet, and Rooftop never sends files unencrypted.`, 7000);
-  if (!busy()) { batch++; city.startFlight(); }
+  if (!busy()) { batch++; city.startFlight(); acquireWakeLock(); }
   const toName = to === '*' ? 'Everyone' : recipients[0]?.name || state.me;
   for (const file of list) {
     jobs.push({ id: ++jobSeq, file, to, toName, recipients, keepHere, sealed: recipients.length > 0,
@@ -1482,6 +1499,7 @@ async function run(job) {
 
 /** Everything in this batch is done: land the plane, tell the person, and show where the last file went up. */
 async function finishBatch() {
+  releaseWakeLock();
   city.endFlight();
   const mine = jobs.filter((j) => j.batch === batch);
   const sent = mine.filter((j) => j.state === 'sent'), failed = mine.filter((j) => j.state === 'failed');
@@ -1507,7 +1525,7 @@ function cancelJob(job) {
 
 function retryJob(job) {
   Object.assign(job, { state: 'waiting', sent: 0, speed: 0, queuedAt: Date.now(), cancelled: false, note: '' });
-  if (!jobs.some((j) => j !== job && j.state === 'sending')) { batch++; city.startFlight(); }
+  if (!jobs.some((j) => j !== job && j.state === 'sending')) { batch++; city.startFlight(); acquireWakeLock(); }
   job.batch = batch;
   pump();
   renderTray();
@@ -2051,18 +2069,102 @@ document.querySelectorAll('[data-scan]').forEach((b) => {
   b.addEventListener('click', scanCode);
 });
 
-// Desktop browsers: drop files anywhere on the city.
-const stage = $('#stage');
-stage.addEventListener('dragover', (e) => {
-  if (![...e.dataTransfer.types].includes('Files')) return;
+// Full-window drag-and-drop: drop files anywhere to send
+const dropOverlay = $('#dropOverlay');
+const dropSub = $('#dropSub');
+let dragDepth = 0;
+
+window.addEventListener('dragenter', (e) => {
+  if (!e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
   e.preventDefault();
-  stage.classList.add('dragging');
+  dragDepth++;
+  if (dropOverlay) {
+    const to = $('#sendTo')?.value;
+    const toName = to === '*' ? 'Everyone' : $('#sendTo')?.selectedOptions?.[0]?.textContent || 'chosen device';
+    if (dropSub) dropSub.textContent = `Sending to ${toName}`;
+    dropOverlay.hidden = false;
+    requestAnimationFrame(() => dropOverlay.classList.add('active'));
+  }
 });
-stage.addEventListener('dragleave', (e) => { if (e.target === stage || !stage.contains(e.relatedTarget)) stage.classList.remove('dragging'); });
-stage.addEventListener('drop', (e) => {
+
+window.addEventListener('dragover', (e) => {
+  if (!e.dataTransfer || ![...e.dataTransfer.types].includes('Files')) return;
   e.preventDefault();
-  stage.classList.remove('dragging');
-  upload([...e.dataTransfer.files]);
+  e.dataTransfer.dropEffect = 'copy';
+});
+
+window.addEventListener('dragleave', (e) => {
+  dragDepth--;
+  if (dragDepth <= 0) {
+    dragDepth = 0;
+    if (dropOverlay) {
+      dropOverlay.classList.remove('active');
+      setTimeout(() => { if (!dropOverlay.classList.contains('active')) dropOverlay.hidden = true; }, 200);
+    }
+  }
+});
+
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  if (dropOverlay) {
+    dropOverlay.classList.remove('active');
+    dropOverlay.hidden = true;
+  }
+  const stageEl = $('#stage');
+  if (stageEl) stageEl.classList.remove('dragging');
+  if (e.dataTransfer?.files?.length) {
+    upload([...e.dataTransfer.files]);
+  }
+});
+
+// Clipboard paste (Ctrl+V / Cmd+V) to send screenshots, copied files, or text
+window.addEventListener('paste', (e) => {
+  const active = document.activeElement;
+  const isInput = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+
+  const files = e.clipboardData?.files;
+  if (files && files.length > 0) {
+    e.preventDefault();
+    const list = [...files];
+    toast(`Pasting ${list.length === 1 ? list[0].name || 'screenshot' : list.length + ' files'} to send…`);
+    upload(list);
+    return;
+  }
+
+  const items = e.clipboardData?.items;
+  if (items) {
+    const fileList = [];
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const f = item.getAsFile();
+        if (f) fileList.push(f);
+      }
+    }
+    if (fileList.length > 0) {
+      e.preventDefault();
+      toast(`Pasting ${fileList.length === 1 ? 'screenshot' : fileList.length + ' files'} to send…`);
+      upload(fileList);
+      return;
+    }
+  }
+
+  if (!isInput) {
+    const text = e.clipboardData?.getData('text/plain')?.trim();
+    if (text) {
+      e.preventDefault();
+      const c = openConv ? (openConv.startsWith('g:') ? convs.get(openConv) : conv(openConv)) : conv('all');
+      if (c) {
+        openChat(c.id);
+        const note = $('#note');
+        if (note) {
+          note.value = text;
+          note.focus();
+          toast('Pasted into chat. Press Enter to send.');
+        }
+      }
+    }
+  }
 });
 
 /* ---- sheets ---- */
@@ -2072,6 +2174,23 @@ document.querySelectorAll('dialog.sheet').forEach((d) => {
   d.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => d.close()));
 });
 $('#sheet-pin').addEventListener('cancel', (e) => e.preventDefault()); // nothing works without a PIN
+$('#fileFilter')?.addEventListener('input', () => renderSheets());
+$('#downloadAll')?.addEventListener('click', async () => {
+  const query = ($('#fileFilter')?.value || '').toLowerCase().trim();
+  const allFiles = state.files || [];
+  const filtered = allFiles.filter((f) => !query || f.name.toLowerCase().includes(query) || (extOf(f.name) || '').includes(query));
+  if (!filtered.length) return;
+  toast(`Downloading ${filtered.length} ${filtered.length === 1 ? 'file' : 'files'}…`);
+  for (let i = 0; i < filtered.length; i++) {
+    const a = document.createElement('a');
+    a.href = saveUrl(filtered[i].name);
+    a.download = filtered[i].name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    if (i < filtered.length - 1) await new Promise((r) => setTimeout(r, 200));
+  }
+});
 
 function openSheet(name) {
   renderSheets();
@@ -2099,18 +2218,47 @@ function icon(id) {
 function renderSheets() {
   renderRecipients();
   const fileList = $('#fileList');
-  fileList.replaceChildren(...state.files.map((f) => {
+  const filterInput = $('#fileFilter');
+  const query = (filterInput?.value || '').toLowerCase().trim();
+  const allFiles = state.files || [];
+  const filtered = allFiles.filter((f) => !query || f.name.toLowerCase().includes(query) || (extOf(f.name) || '').includes(query));
+
+  const toolbar = $('#inboxToolbar');
+  if (toolbar) toolbar.hidden = allFiles.length === 0;
+
+  fileList.replaceChildren(...filtered.map((f) => {
     const badge = el('span', { className: 'badge' });
     badge.style.backgroundColor = colorFor(f.name);
     if (isImage(f)) badge.style.backgroundImage = `url("${fileUrl(f.name)}")`;
     else badge.textContent = (extOf(f.name) || 'file').toUpperCase().slice(0, 4);
-    const info = el('div', {}, el('div', { className: 'name', title: f.name, textContent: f.name }),
+    badge.title = 'Click to preview in city';
+    const info = el('div', { className: 'info', title: 'Click to preview in city' }, el('div', { className: 'name', textContent: f.name }),
       el('div', { className: 'meta', textContent: `${route(f)}, ${humanSize(f.size)}, ${timeAgo(f.at)}` }));
+
+    const preview = () => {
+      const idx = city.murals().findIndex((m) => m.file.name === f.name);
+      if (idx >= 0) {
+        $('#sheet-inbox')?.close();
+        select(idx, true, true);
+      } else {
+        window.open(fileUrl(f.name), '_blank');
+      }
+    };
+    info.addEventListener('click', preview);
+    badge.addEventListener('click', preview);
+
     const dl = el('a', { className: 'dl', href: saveUrl(f.name), download: f.name }, icon('i-down'));
     dl.setAttribute('aria-label', `Save ${f.name}`);
     return el('li', {}, badge, info, dl, ...(f.removable ? [removeButton(f.name)] : []));
   }));
-  $('#fileEmpty').hidden = state.files.length > 0;
+  const empty = $('#fileEmpty');
+  if (allFiles.length > 0 && filtered.length === 0) {
+    empty.textContent = `No files matching "${query}".`;
+    empty.hidden = false;
+  } else {
+    empty.textContent = 'Nothing here yet. Files sent to this PC, from any phone or PC, land here and get painted on a wall.';
+    empty.hidden = filtered.length > 0;
+  }
 
   renderChatAll();
 
@@ -2159,20 +2307,29 @@ function renderHost() {
 }
 
 let hostUrl = '';
+let hostQrRows = null;
+let hostPinCode = '';
+
 async function loadConnect() {
   try {
     const info = await (await call('/api/connect')).json();
     if (hostUrl && info.url !== hostUrl) toast('Network changed. New QR code ready', 5000);
+    hostQrRows = info.qr;
+    hostPinCode = info.pin;
     if (info.url === hostUrl) return;
     hostUrl = info.url;
     $('#hostUrl').textContent = info.url;
     $('#hostPin').textContent = info.pin;
+    const pinL = $('#hostPinLarge'); if (pinL) pinL.textContent = info.pin;
+    const urlL = $('#hostUrlLarge'); if (urlL) urlL.textContent = info.url;
     const net = $('#hostNet');
     net.classList.toggle('warn', !info.secure);
     net.textContent = info.secure
       ? 'Phones must be on the same Wi-Fi or hotspot as this PC. Switch networks and this code updates on its own.'
       : 'HTTPS could not start, so phones cannot connect. See the Rooftop terminal for the reason.';
     drawQr($('#hostQr'), info.qr);
+    const large = $('#hostQrLarge');
+    if (large && $('#sheet-qr')?.open) drawQr(large, info.qr);
   } catch {
     $('#hostNet').textContent = 'Rooftop is not answering. Is it still running in the terminal?';
   }
@@ -2189,7 +2346,23 @@ function drawQr(canvas, rows) {
   rows.forEach((row, y) => [...row].forEach((bit, x) => { if (bit === '1') c.fillRect(offset + x * cell, offset + y * cell, cell, cell); }));
 }
 
+function copyHostPin() {
+  if (hostPinCode) {
+    copyText(hostPinCode);
+    toast('PIN copied');
+  }
+}
+
 $('#copyUrl').addEventListener('click', () => copyText(hostUrl));
+$('#copyPin')?.addEventListener('click', copyHostPin);
+$('#hostPin')?.addEventListener('click', copyHostPin);
+$('#hostQrWrap')?.addEventListener('click', () => {
+  if (hostQrRows) {
+    openSheet('qr');
+    const large = $('#hostQrLarge');
+    if (large) drawQr(large, hostQrRows);
+  }
+});
 
 // Ending a session takes two clicks, so a stray click cannot kick everyone off.
 let sessionArmed = 0;
@@ -2808,6 +2981,28 @@ function notify(title, body, kind = 'message') {
 
 /* ---- the sound: a soft chime, two pure notes going up; messages a little higher than files ---- */
 let audio = null;
+function soundOn() {
+  return local.get('rooftop-sound') !== 'off';
+}
+function renderSound() {
+  const on = soundOn();
+  const btn = $('#soundBtn');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', String(!on));
+  btn.setAttribute('aria-label', on ? 'Mute sounds' : 'Unmute sounds');
+  btn.title = on ? 'Sound effects on (click to mute)' : 'Sound effects muted (click to unmute)';
+  const use = btn.querySelector('use');
+  if (use) use.setAttribute('href', on ? '#i-volume' : '#i-volume-off');
+}
+$('#soundBtn')?.addEventListener('click', () => {
+  const next = soundOn() ? 'off' : 'on';
+  local.set('rooftop-sound', next);
+  renderSound();
+  toast(next === 'on' ? 'Sound effects on' : 'Sound effects muted');
+  if (next === 'on') chime('message');
+});
+renderSound();
+
 function wakeAudio() { // browsers only allow sound after a click on the page, so get ready on the first one
   try {
     audio = audio || new (window.AudioContext || window.webkitAudioContext)();
@@ -2816,6 +3011,7 @@ function wakeAudio() { // browsers only allow sound after a click on the page, s
 }
 document.addEventListener('pointerdown', wakeAudio, { once: true, capture: true });
 function chime(kind) {
+  if (!soundOn()) return;
   wakeAudio();
   if (!audio) return;
   const [first, second] = kind === 'file' ? [523.25, 783.99] : [659.25, 880]; // C5 to G5, or E5 to A5
@@ -2928,7 +3124,13 @@ setTimeout(() => $('#loader')?.classList.add('done'), reduceMotion ? 0 : 1300);
 
 // The opening, on every load: full-screen aerial view, then a frame, then a pill window between big words.
 function runIntro() {
-  if (reduceMotion) return;
+  if (reduceMotion || session.get('rooftop-entered') === '1') {
+    setTimeout(() => {
+      city.arrive();
+      maybeAskName();
+    }, 150);
+    return;
+  }
   const intro = $('#intro');
   document.body.classList.add('intro-on');
   intro.hidden = false;
@@ -2937,6 +3139,7 @@ function runIntro() {
   const t2 = setTimeout(() => { intro.classList.add('s2'); document.body.classList.add('intro-s2'); }, 2400);
   const t3 = setTimeout(() => { intro.classList.add('s3'); document.body.classList.add('intro-s3'); }, 4000);
   slideToEnter(() => {
+    session.set('rooftop-entered', '1');
     clearTimeout(t2); clearTimeout(t3);
     intro.classList.add('leaving');
     $('#loader').classList.remove('done');
@@ -2952,8 +3155,7 @@ function runIntro() {
   });
 }
 
-/* Slide to enter: drag the knob to the end of the pill. Let go early and it springs back; a plain tap gives a nudge
-   to show it slides. Keyboard (Enter or Space on the knob) still enters, for people who cannot drag. */
+/* Slide to enter: drag the knob to the end of the pill, or tap to enter directly. */
 function slideToEnter(enter) {
   const track = $('#introSlider'), knob = $('#introEnter'), fill = $('#slideFill');
   let startX = 0, x = 0, max = 0, dragging = false, done = false;
@@ -2977,13 +3179,14 @@ function slideToEnter(enter) {
     if (!dragging) return;
     dragging = false;
     track.classList.remove('dragging');
-    if (x >= max * 0.85) finish();
-    else if (x < 4) { track.classList.remove('nudge'); void track.offsetWidth; track.classList.add('nudge'); place(0); }
-    else place(0); // springs back (CSS transition)
+    if (x >= max * 0.5) finish();
+    else if (x < 4) { finish(); } // single tap enters directly
+    else place(0); // springs back
   };
   knob.addEventListener('pointerup', release);
   knob.addEventListener('pointercancel', release);
-  knob.addEventListener('click', (e) => { if (e.detail === 0) finish(); }); // keyboard activation has no pointer
+  knob.addEventListener('click', (e) => finish());
+  track.addEventListener('click', (e) => { if (!dragging) finish(); });
 }
 runIntro();
 
