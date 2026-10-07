@@ -41,6 +41,18 @@ public class PinGuard {
         blocked.clear();
     }
 
+    /** Throws if this device already used up its tries. */
+    public synchronized void checkNotBlocked(String ip) throws WrongPinException {
+        if (blocked.contains(ip)) throw new WrongPinException(ip, true);
+    }
+
+    /** A PC-to-PC handshake from this device failed its PIN check: one try used up. */
+    public synchronized boolean fail(String ip) {
+        int count = fails.merge(ip, 1, Integer::sum);
+        if (count >= MAX_FAILS) blocked.add(ip);
+        return count >= MAX_FAILS;
+    }
+
     public synchronized void check(String ip, String attempt) throws WrongPinException {
         if (blocked.contains(ip)) throw new WrongPinException(ip, true);
         if (attempt != null && MessageDigest.isEqual(

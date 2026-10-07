@@ -48,6 +48,16 @@ public class Transfer {
 
     private volatile long nanos = -1;
     private volatile double wireRatio = 1;
+    private volatile String safetyCode = "";
+
+    /** The code both PCs derived in the handshake; the same on both screens means nobody was in between. */
+    public void setSafetyCode(String code) {
+        safetyCode = code;
+    }
+
+    public String safetyCode() {
+        return safetyCode;
+    }
 
     /** Bytes on the wire per byte of payload, set when the transfer was compressed. */
     public void setWireRatio(double ratio) {

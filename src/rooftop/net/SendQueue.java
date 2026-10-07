@@ -113,7 +113,8 @@ public class SendQueue {
         boolean ok = failure == null;
         String compressed = ok && current.wireRatio() < 0.95
                 ? String.format(Locale.ROOT, ", compressed to %d%%", Math.round(current.wireRatio() * 100)) : "";
-        app.log().add(ok ? "sent " + t.payload().describe() + " to " + t.target().name() + ", " + current.speed() + compressed
+        String code = current.safetyCode().isEmpty() ? "" : ", safety code " + current.safetyCode();
+        app.log().add(ok ? "sent " + t.payload().describe() + " to " + t.target().name() + ", " + current.speed() + compressed + code
                 : "could not send to " + t.target().name() + ": " + failure);
         if (Payload.FILE.equals(t.payload().wireType()))
             app.history().add(new History.Entry(System.currentTimeMillis(), t.payload().name(), t.payload().size(), app.me().name(),

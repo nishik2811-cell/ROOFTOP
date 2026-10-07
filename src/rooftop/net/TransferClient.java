@@ -10,6 +10,7 @@ import java.net.Socket;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import rooftop.error.PinMismatchException;
 import rooftop.error.RooftopException;
 import rooftop.error.TransferFailedException;
 import rooftop.model.Payload;
@@ -45,7 +46,13 @@ public final class TransferClient {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(transfer.target().address(), Wire.TCP_PORT), CONNECT_TIMEOUT_MS);
             socket.setSoTimeout(READ_TIMEOUT_MS);
-            SecureChannel channel = SecureChannel.open(socket, true);
+            SecureChannel channel;
+            try {
+                channel = SecureChannel.open(socket, true, transfer.pin());
+            } catch (PinMismatchException e) {
+                throw new TransferFailedException(who + ": " + e.getMessage()); // retrying would only burn the PIN tries
+            }
+            transfer.setSafetyCode(channel.safetyCode());
             DataOutputStream out = new DataOutputStream(channel.output());
             DataInputStream in = new DataInputStream(channel.input());
 

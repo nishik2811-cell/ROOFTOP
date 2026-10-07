@@ -109,6 +109,21 @@ public class SelfTest {
             caught = e.getMessage().contains("tampered");
         }
         check(caught, "tampered ciphertext is rejected");
+        // PC to PC: the handshake is tied to the receiver's PIN, so a wrong PIN or a swapped key fails before any data
+        String[] right = handshake("482915", "482915", false);
+        check(right[0].equals("ok") && right[1].equals("ok") && right[2].equals(right[3]) && right[4].equals("hello"),
+                "right PIN: handshake succeeds, both PCs show safety code " + right[2] + ", data arrives");
+        String[] wrong = handshake("482916", "482915", false);
+        check(wrong[0].equals("pin") && wrong[1].equals("pin") && wrong[4].isEmpty(), "wrong PIN: handshake fails on both sides, no data gets through");
+        String[] swapped = handshake("482915", "482915", true);
+        check(!swapped[0].equals("ok") && !swapped[1].equals("ok") && swapped[4].isEmpty(),
+                "a key swapped by someone in the middle is detected (" + swapped[0] + "/" + swapped[1] + "), no data gets through");
+        rooftop.security.PinGuard guard2 = new rooftop.security.PinGuard();
+        for (int i = 0; i < 10; i++) guard2.fail("9.9.9.9");
+        boolean shutOut = false;
+        try { guard2.checkNotBlocked("9.9.9.9"); } catch (rooftop.error.WrongPinException e) { shutOut = e.isBlocked(); }
+        check(shutOut, "after 10 failed handshakes that PC is shut out");
+
         System.out.println("all checks passed");
     }
 
@@ -144,7 +159,7 @@ public class SelfTest {
             middle.start();
             Thread sender = new Thread(() -> {
                 try (Socket s = new Socket(InetAddress.getLoopbackAddress(), relay.getLocalPort())) {
-                    SecureChannel ch = SecureChannel.open(s, true);
+                    SecureChannel ch = SecureChannel.open(s, true, "123456");
                     DataOutputStream out = new DataOutputStream(ch.output());
                     out.write(data);
                     out.flush();
@@ -155,7 +170,7 @@ public class SelfTest {
             });
             sender.start();
             try (Socket s = receiver.accept()) {
-                SecureChannel ch = SecureChannel.open(s, false);
+                SecureChannel ch = SecureChannel.open(s, false, "123456");
                 java.io.ByteArrayOutputStream got = new java.io.ByteArrayOutputStream();
                 Streams.copy(ch.input(), got, data.length, new Progress(data.length));
                 ch.output().write(1);
@@ -163,6 +178,71 @@ public class SelfTest {
                 return got.toByteArray();
             }
         }
+    }
+
+    /**
+     * One PC-to-PC handshake over loopback, optionally through a relay that swaps the sender's public key for its own.
+     * Returns {client result, server result, client code, server code, what the server received} where a result is
+     * "ok", "pin" (PinMismatchException) or the error message.
+     */
+    private static String[] handshake(String clientPin, String serverPin, boolean swapKey) throws Exception {
+        String[] out = {"", "", "", "", ""};
+        try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
+             ServerSocket relay = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            Thread middle = new Thread(() -> {
+                try (Socket fromClient = relay.accept(); Socket toServer = new Socket(InetAddress.getLoopbackAddress(), server.getLocalPort())) {
+                    Thread back = new Thread(() -> pipe(toServer, fromClient, -1));
+                    back.start();
+                    InputStream in = fromClient.getInputStream();
+                    OutputStream o = toServer.getOutputStream();
+                    byte[] head = Streams.readFully(in, 5 + 2);
+                    int len = ((head[5] & 0xFF) << 8) | (head[6] & 0xFF);
+                    Streams.readFully(in, len);
+                    java.security.KeyPairGenerator g = java.security.KeyPairGenerator.getInstance("EC");
+                    g.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+                    byte[] attacker = g.generateKeyPair().getPublic().getEncoded();
+                    o.write(head);
+                    o.write(attacker); // same length, a valid key, just not the sender's
+                    o.flush();
+                    pipe(fromClient, toServer, -1);
+                    back.join();
+                } catch (Exception ignored) {
+                    // one side hung up
+                }
+            });
+            if (swapKey) middle.start();
+            int port = swapKey ? relay.getLocalPort() : server.getLocalPort();
+            Thread client = new Thread(() -> {
+                try (Socket s = new Socket(InetAddress.getLoopbackAddress(), port)) {
+                    SecureChannel ch = SecureChannel.open(s, true, clientPin);
+                    out[0] = "ok";
+                    out[2] = ch.safetyCode();
+                    ch.output().write("hello".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    ch.output().flush();
+                    ch.input().read();
+                } catch (rooftop.error.PinMismatchException e) {
+                    out[0] = "pin";
+                } catch (IOException e) {
+                    if (out[0].isEmpty()) out[0] = e.getMessage();
+                }
+            });
+            client.start();
+            try (Socket s = server.accept()) {
+                s.setSoTimeout(5000);
+                SecureChannel ch = SecureChannel.open(s, false, serverPin);
+                out[1] = "ok";
+                out[3] = ch.safetyCode();
+                out[4] = new String(Streams.readFully(ch.input(), 5), java.nio.charset.StandardCharsets.UTF_8);
+                ch.output().write(1);
+                ch.output().flush();
+            } catch (rooftop.error.PinMismatchException e) {
+                out[1] = "pin";
+            } catch (IOException e) {
+                out[1] = e.getMessage();
+            }
+            client.join(5000);
+        }
+        return out;
     }
 
     /** Copies bytes between sockets; flips one bit at position {@code flipAt} (if not -1). */

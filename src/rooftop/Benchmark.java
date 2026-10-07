@@ -29,6 +29,8 @@ import rooftop.security.SecureChannel;
  *   add "--mb 200" for a bigger test file (default 100 MB), "--runs 5" for more repetitions (default 3)
  */
 public class Benchmark {
+    private static final String BENCH_PIN = "benchmark"; // both ends of a speed test are your own PCs
+
     private static final int PORT = 45460;
     private static final int[] SIZES = {64 << 10, 128 << 10, 256 << 10, 512 << 10, 1 << 20};
 
@@ -79,7 +81,7 @@ public class Benchmark {
     private static double sendOnce(Path file, String host, int chunk) throws IOException {
         long size = Files.size(file);
         try (Socket socket = new Socket(host, PORT); InputStream src = Files.newInputStream(file)) {
-            SecureChannel ch = SecureChannel.open(socket, true, chunk);
+            SecureChannel ch = SecureChannel.open(socket, true, BENCH_PIN, chunk);
             DataOutputStream out = new DataOutputStream(ch.output());
             out.writeInt(chunk);
             out.writeLong(size);
@@ -99,7 +101,7 @@ public class Benchmark {
             System.out.println("Benchmark receiver ready on port " + PORT + " (" + InetAddress.getLocalHost().getHostAddress() + "). Ctrl+C to stop.");
             while (true) {
                 try (Socket s = server.accept()) {
-                    SecureChannel ch = SecureChannel.open(s, false);
+                    SecureChannel ch = SecureChannel.open(s, false, BENCH_PIN);
                     DataInputStream in = new DataInputStream(new BufferedInputStream(ch.input(), 1 << 20));
                     int chunk = in.readInt();
                     long left = in.readLong();

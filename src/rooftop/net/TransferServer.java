@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import rooftop.Rooftop;
+import rooftop.error.PinMismatchException;
 import rooftop.error.RooftopException;
 import rooftop.error.TransferFailedException;
 import rooftop.error.WrongPinException;
@@ -51,9 +52,20 @@ public class TransferServer extends Thread {
 
     /** The one place receive errors stop. Everything below just throws. */
     private void handle(Socket socket) {
+        String ip = socket.getInetAddress().getHostAddress();
         try (socket) {
             socket.setSoTimeout(READ_TIMEOUT_MS);
-            receive(SecureChannel.open(socket, false), socket.getInetAddress().getHostAddress());
+            app.pins().checkNotBlocked(ip);
+            SecureChannel channel;
+            try {
+                channel = SecureChannel.open(socket, false, app.pins().pin());
+            } catch (PinMismatchException e) {
+                boolean blocked = app.pins().fail(ip);
+                app.log().add("refused " + ip + ": wrong PIN, or someone in the middle" + (blocked ? " (now blocked)" : ""));
+                return;
+            }
+            app.log().add("secure link from " + ip + ", safety code " + channel.safetyCode());
+            receive(channel, ip);
         } catch (WrongPinException e) {
             app.log().add(e.getMessage());
         } catch (RooftopException | IOException | IllegalArgumentException e) {
