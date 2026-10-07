@@ -1590,3 +1590,36 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
 .intro-slider > .slide-fill { z-index: 0; }
 .intro-slider > .slide-text { z-index: 1; }
 .intro-slider > .slide-knob { z-index: 2; }
+
+/* light mode: the PC panel's cards and the pop-up sheets turn cream with dark text instead of staying dark.
+   They are drawn with the --ink / --chalk tokens, so swapping the tokens inside them recolours everything at once.
+   (The pills floating on the city stay dark in both modes, so they read against the buildings.) */
+:root[data-theme="light"] :is(.host-card, dialog.sheet) {
+  --ink: #fbf5ec;
+  --ink-raised: #f1e6d8;
+  --ink-line: #dccbb7;
+  --chalk: #1f1c19;
+  --chalk-dim: #6e655b;
+  --accent: #b7790f;
+  --danger: #c2412d;
+  box-shadow: 0 1px 0 rgb(70 56 38 / 0.08), 0 10px 30px -18px rgb(70 56 38 / 0.45);
+  border: 1px solid rgb(70 56 38 / 0.12);
+}
+@media not (prefers-color-scheme: dark) {
+  :root:not([data-theme="dark"]) :is(.host-card, dialog.sheet) {
+    --ink: #fbf5ec;
+    --ink-raised: #f1e6d8;
+    --ink-line: #dccbb7;
+    --chalk: #1f1c19;
+    --chalk-dim: #6e655b;
+    --accent: #b7790f;
+    --danger: #c2412d;
+    box-shadow: 0 1px 0 rgb(70 56 38 / 0.08), 0 10px 30px -18px rgb(70 56 38 / 0.45);
+    border: 1px solid rgb(70 56 38 / 0.12);
+  }
+}
+/* the scan-to-connect card keeps its coloured offset shadow in light mode too */
+:root[data-theme="light"] .host-card.connect-card { box-shadow: 5px 5px 0 var(--pink), 10px 10px 0 #f2b632; }
+@media not (prefers-color-scheme: dark) {
+  :root:not([data-theme="dark"]) .host-card.connect-card { box-shadow: 5px 5px 0 var(--pink), 10px 10px 0 #f2b632; }
+}
