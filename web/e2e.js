@@ -160,12 +160,18 @@
     if (headerLength > 64 * 1024 || !(await fill(headerLength))) throw new Error('damaged header');
     const header = take(headerLength);
     const fileId = header.slice(0, ID), senderRaw = header.slice(ID, ID + 65), count = header[ID + 65];
-    const myRaw = await publicRaw(pair);
-    const myTag = await keyTag(myRaw);
+    // {@code pair} may be a list: this device's current key and older ones it kept (files can wait across sessions)
+    const mine = await Promise.all((Array.isArray(pair) ? pair : [pair]).map(async (p) => {
+      const raw = await publicRaw(p);
+      return { p, raw, tag: await keyTag(raw) };
+    }));
     let fileKey = null;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count && !fileKey; i++) {
       const e = header.slice(ID + 66 + i * ENTRY, ID + 66 + (i + 1) * ENTRY);
-      if (!same(e.slice(0, 8), myTag)) continue;
+      const match = mine.find((m) => same(e.slice(0, 8), m.tag));
+      if (!match) continue;
+      pair = match.p;
+      const myRaw = match.raw;
       const ephRaw = e.slice(8, 73), salt = e.slice(73, 89), wrapped = e.slice(89);
       const info = concat(WRAP_INFO, fileId, senderRaw, ephRaw, myRaw);
       const k = await wrapKey(await dh(pair.privateKey, ephRaw), await dh(pair.privateKey, senderRaw), salt, info);

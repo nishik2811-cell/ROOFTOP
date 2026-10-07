@@ -37,7 +37,7 @@ for (let i = 0; i < 30; i++) {
   if (!s.devices.some((d) => d.kind !== 'PC')) break;
   await new Promise((r) => setTimeout(r, 1000));
 }
-const browser = await chromium.launch({ args: ['--proxy-server=direct://', '--proxy-bypass-list=*'] });
+const browser = await chromium.launch({ channel: process.env.ROOFTOP_BROWSER_CHANNEL, args: ['--proxy-server=direct://', '--proxy-bypass-list=*'] }) // ROOFTOP_BROWSER_CHANNEL=chrome uses the installed Chrome;
 const errors = [];
 async function page(url, name, noCrypto = false) {
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true, acceptDownloads: true, viewport: { width: 1280, height: 860 } });

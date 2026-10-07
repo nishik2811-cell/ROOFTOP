@@ -12,7 +12,7 @@ const check = (ok, what) => { console.log((ok ? 'ok    ' : 'FAIL  ') + what); if
 const lan = (await (await fetch('http://localhost:8080/api/connect')).json()).url;
 const pcNamedBefore = (await (await fetch('http://localhost:8080/api/state')).json()).meNamed;
 
-const browser = await chromium.launch({ args: ['--proxy-server=direct://', '--proxy-bypass-list=*'] });
+const browser = await chromium.launch({ channel: process.env.ROOFTOP_BROWSER_CHANNEL, args: ['--proxy-server=direct://', '--proxy-bypass-list=*'] }) // ROOFTOP_BROWSER_CHANNEL=chrome uses the installed Chrome;
 const errors = [];
 async function page(url, label, { intro = false, mobile = true } = {}) {
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 860 } });

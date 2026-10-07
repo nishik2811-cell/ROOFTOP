@@ -1759,6 +1759,7 @@ function sendPiece(job, key, offset, rawLength, body, onLoaded) {
    deletes them once every recipient has saved its copy. */
 const E2E = window.RooftopE2E && window.crypto?.subtle ? window.RooftopE2E : null;
 let myPair = null, myRaw = null, myKey = '', keySession = '', keysBusy = null;
+let oldPairs = []; // keys from earlier sessions: files for the PC can wait on it across session changes
 
 function keyStore(mode, fn) {
   return new Promise((resolve, reject) => {
@@ -1779,10 +1780,14 @@ async function ensureKeys() {
   if (!E2E || !state.session || state.session === keySession) return;
   let stored = null;
   try { stored = await keyStore('readonly', (s) => s.get('me')); } catch { /* private browsing: a key for this visit only */ }
+  try { oldPairs = (await keyStore('readonly', (s) => s.get('old'))) || []; } catch { /* none */ }
   if (stored?.session === state.session && stored.pair) myPair = stored.pair;
   else {
+    if (stored?.pair) oldPairs = [stored.pair, ...oldPairs].slice(0, 20);
     myPair = await E2E.newKeyPair();
-    try { await keyStore('readwrite', (s) => s.put({ session: state.session, pair: myPair }, 'me')); } catch { /* kept in memory */ }
+    try {
+      await keyStore('readwrite', (s) => { s.put(oldPairs, 'old'); return s.put({ session: state.session, pair: myPair }, 'me'); });
+    } catch { /* kept in memory */ }
   }
   myRaw = await E2E.publicRaw(myPair);
   myKey = E2E.b64(myRaw);
@@ -1879,7 +1884,7 @@ function postSealed(job, piece, key, offset, total, to, onLoaded) {
 /** Downloads and opens one sealed file: { name, blob, sender, code, everyone }. */
 async function openSealed(item, onProgress) {
   const res = await call('/api/sealed/' + item.id);
-  const out = await E2E.open(res.body.getReader(), myPair, onProgress);
+  const out = await E2E.open(res.body.getReader(), [myPair, ...oldPairs], onProgress);
   const senderKey = E2E.b64(out.senderRaw);
   const sender = state.devices.find((d) => d.key === senderKey) || (state.meKey === senderKey ? { id: state.meId, name: state.me } : null);
   await fingerprint(senderKey);
@@ -1917,7 +1922,7 @@ async function receiveOnHost(item) {
     sealedDone.add(item.id);
   } catch (e) {
     if (e instanceof PinError) return;
-    sealedDone.add(item.id); // do not loop on it; it expires on the PC within the hour
+    sealedDone.add(item.id); // do not loop on it now; the PC keeps it, so reloading this page tries again
     toast(`A private file could not be opened: ${e.message}`, 8000);
   } finally {
     sealedShowing = null;

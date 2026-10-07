@@ -114,7 +114,8 @@ public class SelfTest {
         java.security.KeyPair sender = Rte2.pair(), phoneB = Rte2.pair(), phoneC = Rte2.pair(), stranger = Rte2.pair();
         byte[] blob = Rte2.seal(secretText, "saturday-plans.txt", java.util.List.of(Rte2.raw(phoneB), Rte2.raw(phoneC)), sender);
         Path sealedDir = Files.createTempDirectory("rooftop-sealed-test");
-        rooftop.model.SealedBox box = new rooftop.model.SealedBox(sealedDir);
+        Path heldDir = Files.createTempDirectory("rooftop-held-test");
+        rooftop.model.SealedBox box = new rooftop.model.SealedBox(sealedDir, heldDir, "host");
         String tid = "00112233445566778899aabbccddeeff";
         box.append(tid, java.util.Set.of("web B", "web C"), blob.length, 0, new ByteArrayInputStream(blob), blob.length);
         byte[] stored = Files.readAllBytes(sealedDir.resolve(tid));
@@ -142,6 +143,19 @@ public class SelfTest {
         String[] leftovers;
         try (var list = Files.list(sealedDir)) { leftovers = list.map(p -> p.getFileName().toString()).toArray(String[]::new); }
         check(stillThere && gone && collectRefused && leftovers.length == 0, "nothing about the transfer is left after the last acknowledgement");
+
+        // a file for this PC (here sent to Everyone: the PC and C) is held until the PC's page opens it
+        String forPc = "ffeeddccbbaa99887766554433221100";
+        box.append(forPc, java.util.Set.of("host", "web C"), blob.length, 0, new ByteArrayInputStream(blob), blob.length);
+        box.clear(); // End session
+        boolean afterSession = box.waitingFor("host").size() == 1 && box.waitingFor("web C").isEmpty();
+        rooftop.model.SealedBox restarted = new rooftop.model.SealedBox(sealedDir, heldDir, "host"); // Rooftop restarts
+        boolean afterRestart = restarted.waitingFor("host").size() == 1 && Arrays.equals(Files.readAllBytes(restarted.collect(forPc, "host")), blob);
+        restarted.acknowledge(forPc, "host");
+        String[] heldLeft;
+        try (var list = Files.list(heldDir)) { heldLeft = list.map(p -> p.getFileName().toString()).toArray(String[]::new); }
+        check(afterSession && afterRestart && heldLeft.length == 0 && restarted.count() == 0,
+                "a file for the PC survives End session and a restart, and goes only once the PC's page acknowledges it");
 
         // chat: the PC relays sealed messages it cannot read, padded, and forgets every one of them at session end
         Path chatHome = Files.createTempDirectory("rooftop-chat-test");
