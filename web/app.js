@@ -2784,7 +2784,10 @@ function renderNotify() {
   for (const b of document.querySelectorAll('[data-notify]')) {
     b.hidden = !canNotify;
     b.setAttribute('aria-pressed', String(on));
-    b.lastChild.textContent = on ? 'Notifications on' : 'Notify me when something arrives';
+    const label = b.querySelector('span');
+    if (label) label.textContent = on ? 'Notifications on' : 'Notify me when something arrives';
+    b.title = on ? 'Notifications are on. Click to turn them off' : 'Click to turn notifications on';
+    if (!label) b.setAttribute('aria-label', on ? 'Turn notifications off' : 'Turn notifications on');
   }
   const note = !canNotify ? 'This browser cannot show notifications here, so new things are counted in the tab title instead.'
     : Notification.permission === 'denied' ? 'Notifications are blocked for this page in the browser settings.'
@@ -2797,11 +2800,29 @@ function renderNotify() {
   document.querySelector('.notify-art')?.classList.toggle('on', on);
 }
 document.querySelectorAll('[data-notify]').forEach((b) => b.addEventListener('click', async () => {
-  if (notifyOn()) local.set('rooftop-notify', 'off');
-  else {
-    const answer = await Notification.requestPermission();
-    local.set('rooftop-notify', answer === 'granted' ? 'on' : 'off');
-    if (answer === 'granted') toast('Notifications on');
+  if (notifyOn()) {
+    local.set('rooftop-notify', 'off');
+    toast('Notifications off');
+    renderNotify();
+    return;
+  }
+  let answer = Notification.permission;
+  if (answer !== 'granted') {
+    try {
+      answer = await Notification.requestPermission();
+    } catch {
+      answer = await new Promise((r) => Notification.requestPermission(r)); // older Safari takes a callback
+    }
+  }
+  local.set('rooftop-notify', answer === 'granted' ? 'on' : 'off');
+  if (answer === 'granted') {
+    // show one right away, so it is clear they work (the real ones come while Rooftop is in the background)
+    try { new Notification('Rooftop notifications are on', { body: 'You will get one like this when a file or message arrives while Rooftop is in the background.' }); } catch { /* the toast still says it */ }
+    toast('Notifications on. You will get one when something arrives while Rooftop is in the background.', 6000);
+  } else if (answer === 'denied') {
+    toast('The browser blocked notifications. Click the icon left of the address bar, set Notifications to Allow, then try again.', 9000);
+  } else {
+    toast('The browser did not ask. Click the icon left of the address bar, set Notifications to Allow, then try again.', 9000);
   }
   renderNotify();
 }));
