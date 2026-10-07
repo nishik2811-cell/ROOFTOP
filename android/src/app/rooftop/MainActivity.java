@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.view.WindowManager;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -41,6 +42,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 0);
         startForegroundService(new Intent(this, RooftopService.class));
@@ -165,7 +167,21 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        moveTaskToBack(true); // keep sharing in the background; stop it from the notification
+        if (web != null) {
+            web.evaluateJavascript("(() => {"
+                    + "const s = document.querySelector('dialog.sheet[open]');"
+                    + "if (s && s.id !== 'sheet-pin') { s.close(); return true; }"
+                    + "const st = document.getElementById('story');"
+                    + "if (st && !st.hidden) { if (typeof closeStory === 'function') closeStory(); else st.hidden = true; return true; }"
+                    + "return false;"
+                    + "})()", handled -> {
+                if (!"true".equals(handled)) {
+                    moveTaskToBack(true); // keep sharing in the background; stop it from the notification
+                }
+            });
+        } else {
+            moveTaskToBack(true);
+        }
     }
 
     @Override

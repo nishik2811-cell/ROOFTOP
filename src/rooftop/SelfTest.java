@@ -200,6 +200,18 @@ public class SelfTest {
         try { guard2.checkNotBlocked("9.9.9.9"); } catch (rooftop.error.WrongPinException e) { shutOut = e.isBlocked(); }
         check(shutOut, "after 10 failed handshakes that PC is shut out");
 
+        // Model enhancements: file category and client identification
+        check("image".equals(rooftop.model.Inbox.category("photo.jpg")), "Inbox category image");
+        check("video".equals(rooftop.model.Inbox.category("movie.mp4")), "Inbox category video");
+        check("audio".equals(rooftop.model.Inbox.category("song.mp3")), "Inbox category audio");
+        check("code".equals(rooftop.model.Inbox.category("script.py")), "Inbox category code");
+        check("archive".equals(rooftop.model.Inbox.category("bundle.zip")), "Inbox category archive");
+        rooftop.model.PhoneClient pcClient = new rooftop.model.PhoneClient(
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+                java.net.InetAddress.getByName("192.168.1.15"), "web 123");
+        check("PHONE".equals(pcClient.kind()) && "iOS".equals(pcClient.platform()) && "Safari".equals(pcClient.browser()),
+                "PhoneClient device detection detects iPhone iOS Safari");
+
         System.out.println("all checks passed");
     }
 

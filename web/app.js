@@ -240,7 +240,35 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   // the bits of shoreline no building stands in front of, where the surf may be animated
   const surf = [];
   for (let x = view.x0 - 60; x < view.x1 + 60; x += 6) if (!hidden([x, shoreY - 2], SHORE * 2) && !hidden([x, shoreY + 2], SHORE * 2)) surf.push(x);
-  const people = Array.from({ length: 30 }, () => ({ x: PLAZA.x0 + 1.5 + life() * (PLAZA.x1 - PLAZA.x0 - 3), z: PLAZA.z0 + 1.5 + life() * (PLAZA.z1 - PLAZA.z0 - 3), a: life() * 6.28, color: CAR_COLORS[Math.floor(life() * 6)] }));
+  const SKINS = ['#f5c6a5', '#d49b72', '#8d5524', '#c68642', '#f3d2b8', '#ad724e', '#ffe0bd'];
+  const SHIRTS = ['#e2483d', '#3fd6e0', '#f2b632', '#8b5cf6', '#2f86d6', '#10b981', '#f472b6', '#f6ece0', '#1f2937', '#e11d48'];
+  const PANTS = ['#1e293b', '#2c3e50', '#334155', '#1e2022', '#475569', '#3f3f46'];
+  const HAIRS = ['#1a1a1a', '#3e2723', '#5d4037', '#8d6e63', '#d4a373', '#b45309', '#172554'];
+  const SHOES = ['#ffffff', '#111111', '#b91c1c', '#1d4ed8'];
+  const people = Array.from({ length: 36 }, () => {
+    const isPlaza = life() > 0.18;
+    const x = isPlaza ? PLAZA.x0 + 1.2 + life() * (PLAZA.x1 - PLAZA.x0 - 2.4) : bx(Math.floor(life() * 4)) + BW + 0.6;
+    const z = isPlaza ? PLAZA.z0 + 1.2 + life() * (PLAZA.z1 - PLAZA.z0 - 2.4) : bz(Math.floor(life() * 4)) + 1.2;
+    return {
+      x, z,
+      a: life() * 6.28,
+      skin: SKINS[Math.floor(life() * SKINS.length)],
+      shirt: SHIRTS[Math.floor(life() * SHIRTS.length)],
+      pants: PANTS[Math.floor(life() * PANTS.length)],
+      hair: HAIRS[Math.floor(life() * HAIRS.length)],
+      shoes: SHOES[Math.floor(life() * SHOES.length)],
+      hairStyle: Math.floor(life() * 4),
+      hatColor: SHIRTS[Math.floor(life() * SHIRTS.length)],
+      hasBag: life() > 0.45,
+      bagColor: life() > 0.5 ? '#78350f' : '#0f172a',
+      hasPhone: life() > 0.35,
+      speed: 0.0006 + life() * 0.0005,
+      state: 'walk',
+      stateTimer: 2500 + life() * 6000,
+      seed: life() * 100,
+      walkDist: life() * 10
+    };
+  });
 
   /* ---- state ---- */
   let night = false;
@@ -881,16 +909,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       ctx.beginPath(); ctx.moveTo(pt[0] - sail.dir * 2.5, pt[1] - 1); ctx.lineTo(pt[0] - sail.dir * 2.5, pt[1] - 13 * k2); ctx.lineTo(pt[0] - sail.dir * 8 * k2, pt[1] - 2); ctx.closePath(); ctx.fill();
     }
     for (const person of people) {
-      person.a += (Math.sin(now * 0.001 + person.x) * 0.02);
-      person.x += Math.cos(person.a) * 0.0006 * dt;
-      person.z += Math.sin(person.a) * 0.0006 * dt;
-      if (person.x < PLAZA.x0 + 0.5 || person.x > PLAZA.x1 - 0.5 || person.z < PLAZA.z0 + 0.5 || person.z > PLAZA.z1 - 0.5) person.a += Math.PI;
-      const pt = iso(person.x, 0, person.z);
-      if (hidden(pt, person.x * 2 + person.z * 2)) continue;
-      ctx.fillStyle = person.color;
-      ctx.fillRect(pt[0] - 1.5, pt[1] - 7, 3, 6);
-      ctx.fillStyle = p.ink;
-      ctx.beginPath(); ctx.arc(pt[0], pt[1] - 8.5, 1.8, 0, Math.PI * 2); ctx.fill();
+      drawPerson(person, p, dt, now);
     }
     if (p.lit) { // night: street lamps along the avenues
       for (const [a, b] of AVENUES) for (let z = 1; z < 40; z += 4) {
@@ -929,6 +948,204 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     if (p.lit) { const h = iso(x + (along ? car.dir * L / 2 : 0), y + 0.15, z + (along ? 0 : car.dir * L / 2)); ctx.fillStyle = p.lit; ctx.fillRect(h[0] - 1.5, h[1] - 1.5, 3, 3); }
     const [ex, ez] = along ? [L / 2, W / 2] : [W / 2, L / 2];
     occlude(x - ex, x + ex, z - ez, z + ez, y);
+  }
+
+  function drawPerson(person, p, dt, now) {
+    // State machine updates
+    person.stateTimer -= dt;
+    if (person.stateTimer <= 0) {
+      if (person.state === 'walk') {
+        person.state = (person.hasPhone && Math.random() < 0.45) ? 'phone' : 'idle';
+        person.stateTimer = 1600 + Math.random() * 3200;
+      } else {
+        person.state = 'walk';
+        person.stateTimer = 2500 + Math.random() * 6000;
+        person.a += (Math.random() - 0.5) * 1.6;
+      }
+    }
+
+    if (person.state === 'walk') {
+      const step = person.speed * dt;
+      person.x += Math.cos(person.a) * step;
+      person.z += Math.sin(person.a) * step;
+      person.walkDist += step;
+
+      // Keep inside plaza / boundary
+      if (person.x < PLAZA.x0 + 0.6) { person.x = PLAZA.x0 + 0.6; person.a = 0; }
+      else if (person.x > PLAZA.x1 - 0.6) { person.x = PLAZA.x1 - 0.6; person.a = Math.PI; }
+      if (person.z < PLAZA.z0 + 0.6) { person.z = PLAZA.z0 + 0.6; person.a = Math.PI * 0.5; }
+      else if (person.z > PLAZA.z1 - 0.6) { person.z = PLAZA.z1 - 0.6; person.a = -Math.PI * 0.5; }
+
+      // Avoid fountain center
+      const fcX = (PLAZA.x0 + PLAZA.x1) / 2;
+      const fcZ = (PLAZA.z0 + PLAZA.z1) / 2;
+      const dFc = Math.hypot(person.x - fcX, person.z - fcZ);
+      if (dFc < 1.8) {
+        const ang = Math.atan2(person.z - fcZ, person.x - fcX);
+        person.x = fcX + Math.cos(ang) * 1.85;
+        person.z = fcZ + Math.sin(ang) * 1.85;
+        person.a = ang + (Math.random() > 0.5 ? 1 : -1) * 0.8;
+      }
+    }
+
+    const pt = iso(person.x, 0, person.z);
+    if (hidden(pt, (person.x + person.z) * 2)) return;
+    const px = pt[0], py = pt[1];
+    if (px < view.x0 - 20 || px > view.x1 + 20 || py < view.y0 - 20 || py > view.y1 + 20) return;
+
+    // Contact shadow
+    ctx.fillStyle = night ? 'rgba(0,0,0,0.45)' : 'rgba(40,30,20,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(px, py + 0.5, 3.2, 1.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Stride & animation bounce
+    let stride = 0;
+    let bounce = 0;
+    if (person.state === 'walk') {
+      const stridePhase = person.walkDist * 32 + person.seed;
+      stride = Math.sin(stridePhase);
+      bounce = -Math.abs(Math.cos(stridePhase)) * 0.7;
+    } else {
+      bounce = Math.sin(now * 0.003 + person.seed) * 0.35;
+    }
+
+    const baseY = py + bounce;
+
+    // Legs / Pants
+    ctx.strokeStyle = person.pants;
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = 'round';
+    // Left leg
+    ctx.beginPath();
+    ctx.moveTo(px - 0.9, baseY - 5);
+    ctx.lineTo(px - 0.9 - stride * 1.5, py - 0.5);
+    ctx.stroke();
+    // Right leg
+    ctx.beginPath();
+    ctx.moveTo(px + 0.9, baseY - 5);
+    ctx.lineTo(px + 0.9 + stride * 1.5, py - 0.5);
+    ctx.stroke();
+
+    // Shoes
+    ctx.fillStyle = person.shoes;
+    ctx.fillRect(px - 1.8 - stride * 1.5, py - 0.8, 1.8, 1.3);
+    ctx.fillRect(px + 0.3 + stride * 1.5, py - 0.8, 1.8, 1.3);
+
+    // Torso / Shirt
+    const torsoY = baseY - 8.6;
+    ctx.fillStyle = person.shirt;
+    ctx.fillRect(px - 1.7, torsoY, 3.4, 3.8);
+    // Isometric depth shadow
+    ctx.fillStyle = shade(person.shirt, 0.75);
+    ctx.fillRect(px + 0.8, torsoY, 0.9, 3.8);
+
+    // Backpack
+    if (person.hasBag) {
+      ctx.fillStyle = person.bagColor;
+      ctx.fillRect(px - 2.5, torsoY + 0.4, 1.4, 3.0);
+      ctx.fillStyle = shade(person.bagColor, 0.7);
+      ctx.fillRect(px - 2.5, torsoY + 0.4, 1.4, 0.8);
+    }
+
+    // Arms & Hands / Smartphone
+    if (person.state === 'phone') {
+      // Left arm resting down
+      ctx.strokeStyle = person.shirt;
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(px - 1.5, torsoY + 0.8);
+      ctx.lineTo(px - 1.8, torsoY + 3.0);
+      ctx.stroke();
+      // Right arm raised holding phone
+      ctx.beginPath();
+      ctx.moveTo(px + 1.5, torsoY + 0.8);
+      ctx.lineTo(px + 1.8, torsoY + 2.0);
+      ctx.lineTo(px + 0.4, torsoY + 1.4);
+      ctx.stroke();
+      // Right hand
+      ctx.fillStyle = person.skin;
+      ctx.fillRect(px + 0.1, torsoY + 1.1, 1.1, 1.1);
+      // Smartphone body
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(px - 0.3, torsoY + 0.7, 1.5, 2.0);
+      // Glowing AllDrop cyan screen
+      ctx.fillStyle = '#3fd6e0';
+      ctx.fillRect(px - 0.1, torsoY + 0.9, 1.1, 1.2);
+      if (p.lit) {
+        ctx.fillStyle = 'rgba(63, 214, 224, 0.35)';
+        ctx.beginPath();
+        ctx.arc(px + 0.5, torsoY + 1.5, 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      const armSwing = stride * 1.5;
+      ctx.strokeStyle = person.shirt;
+      ctx.lineWidth = 1.3;
+      // Left arm
+      ctx.beginPath();
+      ctx.moveTo(px - 1.6, torsoY + 0.8);
+      ctx.lineTo(px - 1.8 + armSwing, torsoY + 3.2);
+      ctx.stroke();
+      ctx.fillStyle = person.skin;
+      ctx.fillRect(px - 2.2 + armSwing, torsoY + 3.0, 1.1, 1.1);
+      // Right arm
+      ctx.beginPath();
+      ctx.moveTo(px + 1.6, torsoY + 0.8);
+      ctx.lineTo(px + 1.8 - armSwing, torsoY + 3.2);
+      ctx.stroke();
+      ctx.fillStyle = person.skin;
+      ctx.fillRect(px + 1.6 - armSwing, torsoY + 3.0, 1.1, 1.1);
+    }
+
+    // Neck
+    ctx.fillStyle = person.skin;
+    ctx.fillRect(px - 0.7, torsoY - 1.0, 1.4, 1.1);
+
+    // Head
+    const headY = torsoY - 2.8;
+    ctx.fillStyle = person.skin;
+    ctx.beginPath();
+    ctx.arc(px, headY, 1.7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hair / Headwear
+    switch (person.hairStyle) {
+      case 0: // Baseball cap with visor
+        ctx.fillStyle = person.hatColor;
+        ctx.beginPath();
+        ctx.arc(px, headY - 0.3, 1.9, Math.PI, 0);
+        ctx.fill();
+        ctx.fillRect(px - 0.1, headY - 0.6, 2.5, 0.9);
+        break;
+      case 1: // Beanie
+        ctx.fillStyle = person.hatColor;
+        ctx.beginPath();
+        ctx.arc(px, headY - 0.5, 2.0, Math.PI, 0);
+        ctx.fill();
+        ctx.fillRect(px - 2.0, headY - 0.7, 4.0, 1.1);
+        break;
+      case 2: // Short neat hair
+        ctx.fillStyle = person.hair;
+        ctx.beginPath();
+        ctx.arc(px, headY - 0.4, 1.9, Math.PI * 0.9, Math.PI * 0.1);
+        ctx.fill();
+        ctx.fillRect(px - 1.8, headY - 1.1, 3.6, 1.0);
+        break;
+      case 3: // Afro / curly hair
+        ctx.fillStyle = person.hair;
+        ctx.beginPath();
+        ctx.arc(px, headY - 0.6, 2.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px - 1.2, headY - 1.1, 1.1, 0, Math.PI * 2);
+        ctx.arc(px + 1.2, headY - 1.1, 1.1, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+    }
+
+    // Occlude so characters walk behind buildings and signs properly
+    occlude(person.x - 0.15, person.x + 0.15, person.z - 0.15, person.z + 0.15, 0);
   }
 
   // Paint back whatever stands in front of a moving thing, straight from the cached world, so it
@@ -1027,6 +1244,10 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
         clamp();
         requestDraw();
       }
+      if (e.pointerType === 'mouse') {
+        const rect = canvas.getBoundingClientRect();
+        onHover(-1, e.clientX - rect.left, e.clientY - rect.top, drag.moved);
+      }
       return;
     }
     if (e.pointerType === 'mouse') { // hover: name the file under the cursor
@@ -1034,7 +1255,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       const hit = murals.findIndex((m) => inside(w, m.poly) || Math.hypot(w[0] - m.center[0], w[1] - m.center[1]) < 14 / cam.z);
       if (hit !== hovered) { hovered = hit; requestDraw(); }
       const rect = canvas.getBoundingClientRect();
-      onHover(hit, e.clientX - rect.left, e.clientY - rect.top);
+      onHover(hit, e.clientX - rect.left, e.clientY - rect.top, false);
     }
   });
   const release = (e) => {
@@ -1046,6 +1267,10 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       if (hit >= 0) onSelect(hit);
     }
     drag = null;
+    if (e.pointerType === 'mouse') {
+      const rect = canvas.getBoundingClientRect();
+      onHover(hovered, e.clientX - rect.left, e.clientY - rect.top, false);
+    }
   };
   canvas.addEventListener('pointerup', release);
   canvas.addEventListener('pointercancel', release);
@@ -1121,7 +1346,7 @@ let lastOnline = true;
 let lastTextAt = null;     // newest message time we have already shown
 let seenTexts = new Set(); // for highlighting new rows in the PC's message list
 
-const city = createCity($('#city'), { imageUrl: fileUrl, onSelect: (i) => select(i), onHover: (i, x, y) => hover(i, x, y), onFrame: placeRemoveButtons });
+const city = createCity($('#city'), { imageUrl: fileUrl, onSelect: (i) => select(i), onHover: (i, x, y, panning) => hover(i, x, y, panning), onFrame: placeRemoveButtons });
 
 /* ---- removing files: an × on each file in the city and in the inbox. Two clicks, so a slip does not delete. ---- */
 // Only one file can be "armed" at a time; the state lives here, not on the button, because the inbox list
@@ -1309,13 +1534,19 @@ function paintThumb(el, f) {
   el.textContent = isImage(f) ? '' : (extOf(f.name) || 'file').toUpperCase().slice(0, 4);
 }
 
-function hover(index, x, y) {
+function hover(index, x, y, panning = false) {
   const ring = $('#ring');
   const peek = $('#peek');
   if (index === -2) { ring.hidden = true; peek.hidden = true; return; }
   const rect = $('#city').getBoundingClientRect();
   ring.hidden = false;
   ring.style.transform = `translate(${rect.left + x}px, ${rect.top + y}px)`;
+  ring.classList.toggle('panning', Boolean(panning));
+  if (panning) {
+    peek.hidden = true;
+    ring.classList.remove('hot');
+    return;
+  }
   ring.classList.toggle('hot', index >= 0);
   const m = city.murals()[index];
   if (!m) { peek.hidden = true; return; }
@@ -1326,18 +1557,76 @@ function hover(index, x, y) {
   peek.hidden = false;
 }
 
+function guessCategory(filename) {
+  if (!filename) return 'file';
+  const ext = (filename.split('.').pop() || '').toLowerCase();
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg', 'bmp'].includes(ext)) return 'image';
+  if (['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v'].includes(ext)) return 'video';
+  if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'opus'].includes(ext)) return 'audio';
+  if (['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'rtf', 'md'].includes(ext)) return 'document';
+  if (['zip', 'tar', 'gz', 'tgz', 'rar', '7z', 'bz2'].includes(ext)) return 'archive';
+  if (['js', 'ts', 'html', 'css', 'java', 'py', 'c', 'cpp', 'json', 'xml', 'yaml', 'yml', 'sql', 'sh', 'bat'].includes(ext)) return 'code';
+  return 'file';
+}
+
 function openStory(index) {
   const m = city.murals()[index];
   if (!m) return;
   const story = $('#story');
   const art = $('#storyArt');
-  paintThumb(art, m.file);
+  const cat = m.file.category || guessCategory(m.file.name);
+
+  art.replaceChildren();
+  art.textContent = '';
+  art.style.backgroundImage = '';
+  art.className = 'story-art cat-' + cat;
+
+  if (cat === 'video') {
+    art.style.backgroundColor = '#000000';
+    const vid = el('video', {
+      className: 'story-art-video',
+      controls: true,
+      playsInline: true,
+      preload: 'metadata',
+      src: fileUrl(m.file.name)
+    });
+    art.append(vid);
+  } else if (cat === 'audio') {
+    art.style.backgroundColor = 'var(--ink-raised)';
+    const audioWrap = el('div', { className: 'story-art-audio' },
+      el('span', { className: 'audio-visualizer-icon' }, icon('i-up')),
+      el('audio', { className: 'story-audio', controls: true, preload: 'metadata', src: fileUrl(m.file.name) })
+    );
+    art.append(audioWrap);
+  } else if (cat === 'image') {
+    art.style.backgroundColor = colorFor(m.file.name);
+    art.style.backgroundImage = `url("${fileUrl(m.file.name)}")`;
+  } else if (cat === 'code' || (cat === 'document' && (m.file.name.endsWith('.txt') || m.file.name.endsWith('.md')))) {
+    art.style.backgroundColor = 'var(--ink-raised)';
+    const pre = el('pre', { className: 'story-text', textContent: 'Loading preview...' });
+    art.append(pre);
+    fetch(fileUrl(m.file.name)).then((r) => r.text()).then((t) => {
+      if (pre.isConnected) pre.textContent = t.slice(0, 1500) + (t.length > 1500 ? '\n\n... [more in file]' : '');
+    }).catch(() => { if (pre.isConnected) pre.textContent = 'Could not preview text'; });
+  } else {
+    art.style.backgroundColor = colorFor(m.file.name);
+    art.textContent = (extOf(m.file.name) || 'file').toUpperCase().slice(0, 4);
+  }
+
   $('#storyKicker').textContent = m.kind === 'billboard' ? '[up on a billboard]' : '[painted on a wall]';
+  const badge = $('#storyCategory');
+  if (badge) {
+    badge.className = 'story-badge cat-' + cat;
+    badge.textContent = cat;
+  }
   $('#storyTitle').textContent = m.file.name;
   $('#storyMeta').textContent = `${route(m.file)}\n${humanSize(m.file.size)}, ${timeAgo(m.file.at)}`;
   $('#storySave').href = saveUrl(m.file.name);
   $('#storySave').download = m.file.name;
+  const openTab = $('#storyOpenTab');
+  if (openTab) openTab.href = fileUrl(m.file.name);
   $('#storyCount').textContent = `${index + 1} / ${city.murals().length}`;
+
   story.hidden = false;
   requestAnimationFrame(() => story.classList.add('open'));
 }
@@ -1345,6 +1634,11 @@ function openStory(index) {
 function closeStory(zoomOut = true) {
   const story = $('#story');
   story.classList.remove('open');
+  const art = $('#storyArt');
+  if (art) {
+    art.querySelectorAll('audio, video').forEach((a) => { try { a.pause(); } catch {} });
+    setTimeout(() => { if (!story.classList.contains('open')) art.replaceChildren(); }, 450);
+  }
   setTimeout(() => { if (!story.classList.contains('open')) story.hidden = true; }, 450);
   if (zoomOut) city.overview();
 }
@@ -1363,23 +1657,100 @@ function updateNav() {
   // the bottom bar now picks who to send to; the story panel handles moving between files
 }
 
+function pickRecipient(val) {
+  const select = $('#sendTo');
+  if (select) {
+    select.value = val;
+    select.dispatchEvent(new Event('change'));
+  }
+  renderRecipients(true);
+  toggleSendToMenu(false);
+}
+
+function toggleSendToMenu(open) {
+  const menu = $('#sendToMenu');
+  const btn = $('#sendToBtn');
+  if (!menu || !btn) return;
+  const isCurrentlyOpen = !menu.hidden;
+  const target = typeof open === 'boolean' ? open : !isCurrentlyOpen;
+  menu.hidden = !target;
+  btn.setAttribute('aria-expanded', String(target));
+}
+
 /** Who can receive: everyone, the PC (when you are a guest), and every other browser that is connected. */
 function renderRecipients(force = false) {
   const people = [];
   if (!state.local && state.meId) people.push({ id: state.meId, name: state.me, key: state.meKey || '', pc: true });
   for (const d of state.devices) if (d.kind !== 'PC' && d.id) people.push({ id: d.id, name: d.name, key: d.key });
+
   // files: only devices with a key can be picked, and each says whether its key has been verified
   const files = [['*', 'Everyone', false], ...people.map((d) => [d.id,
     `${initials(d.name)} · ${d.name}${d.pc ? ' (PC)' : ''}${d.key ? (isVerified(d.key) ? ' ✓ verified' : ' · not verified') : d.pc ? ' · PC page closed' : ' · no key yet'}`, !d.key])];
-  for (const [select, options] of [[$('#sendTo'), files]]) {
-    const key = JSON.stringify(options);
-    if (select.dataset.key === key && !force) continue; // rebuilding an open dropdown would close it
-    const keep = select.value;
-    select.replaceChildren(...options.map(([value, text, disabled]) => el('option', { value, textContent: text, disabled })));
-    select.value = options.some(([v, , off]) => v === keep && !off) ? keep : '*';
-    select.dataset.key = key;
+
+  const select = $('#sendTo');
+  if (select) {
+    const key = JSON.stringify(files);
+    if (select.dataset.key !== key || force) {
+      const keep = select.value;
+      select.replaceChildren(...files.map(([value, text, disabled]) => el('option', { value, textContent: text, disabled })));
+      select.value = files.some(([v, , off]) => v === keep && !off) ? keep : '*';
+      select.dataset.key = key;
+    }
+    const curVal = select.value;
+    $('#sendToChat').hidden = curVal === '*';
+
+    // Update button text
+    const curPerson = people.find((p) => p.id === curVal);
+    const curName = curVal === '*' ? 'Everyone' : (curPerson ? curPerson.name + (curPerson.pc ? ' (PC)' : '') : 'Recipient');
+    const nameEl = $('#sendToName');
+    if (nameEl) nameEl.textContent = curName;
+
+    // Render custom rich list
+    const list = $('#sendToList');
+    if (list) {
+      const items = [];
+
+      // Everyone
+      const allItem = el('li', {
+        className: 'to-item' + (curVal === '*' ? ' selected' : '')
+      },
+        el('span', { className: 'to-item-avatar all', textContent: '★' }),
+        el('div', { className: 'to-item-info' },
+          el('span', { className: 'to-item-name', textContent: 'Everyone' }),
+          el('span', { className: 'to-item-sub', textContent: 'Broadcast to all devices' })
+        ),
+        icon('i-check')
+      );
+      allItem.lastChild.classList.add('to-item-check');
+      allItem.addEventListener('click', () => pickRecipient('*'));
+      items.push(allItem);
+
+      // Connected devices
+      for (const p of people) {
+        const isSel = curVal === p.id;
+        const off = !p.key;
+        const ver = p.key && isVerified(p.key);
+        const subText = ver ? '✓ Verified' : (p.key ? 'End-to-end encrypted' : (p.pc ? 'PC page closed' : 'No key yet'));
+
+        const item = el('li', {
+          className: 'to-item' + (isSel ? ' selected' : '') + (off ? ' disabled' : '')
+        },
+          avatar(p),
+          el('div', { className: 'to-item-info' },
+            el('span', { className: 'to-item-name', textContent: p.name + (p.pc ? ' (PC)' : '') }),
+            el('span', { className: 'to-item-sub' + (ver ? ' verified' : ''), textContent: subText })
+          ),
+          icon('i-check')
+        );
+        item.lastChild.classList.add('to-item-check');
+        if (!off) {
+          item.addEventListener('click', () => pickRecipient(p.id));
+        }
+        items.push(item);
+      }
+      list.replaceChildren(...items);
+    }
   }
-  $('#sendToChat').hidden = $('#sendTo').value === '*';
 }
 
 /* ---- avatars: initials in a colour that belongs to the device ---- */
@@ -2051,18 +2422,50 @@ document.querySelectorAll('[data-scan]').forEach((b) => {
   b.addEventListener('click', scanCode);
 });
 
-// Desktop browsers: drop files anywhere on the city.
+// Drop files anywhere on the page
 const stage = $('#stage');
-stage.addEventListener('dragover', (e) => {
-  if (![...e.dataTransfer.types].includes('Files')) return;
-  e.preventDefault();
-  stage.classList.add('dragging');
+const dropOverlay = $('#dropOverlay');
+let dragCounter = 0;
+
+window.addEventListener('dragenter', (e) => {
+  if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) {
+    dragCounter++;
+    if (dropOverlay) {
+      const to = $('#sendTo')?.value;
+      const targetName = to === '*' ? 'Everyone' : $('#sendTo')?.selectedOptions?.[0]?.text?.split(' · ')[1] || 'Recipient';
+      const dropRecip = $('#dropRecipient');
+      if (dropRecip) dropRecip.textContent = `Sending to ${targetName}`;
+      dropOverlay.classList.add('active');
+      dropOverlay.hidden = false;
+    }
+  }
 });
-stage.addEventListener('dragleave', (e) => { if (e.target === stage || !stage.contains(e.relatedTarget)) stage.classList.remove('dragging'); });
-stage.addEventListener('drop', (e) => {
+
+window.addEventListener('dragleave', (e) => {
+  dragCounter = Math.max(0, dragCounter - 1);
+  if (dragCounter === 0 && dropOverlay) {
+    dropOverlay.classList.remove('active');
+    dropOverlay.hidden = true;
+  }
+});
+
+window.addEventListener('dragover', (e) => {
+  if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) {
+    e.preventDefault();
+  }
+});
+
+window.addEventListener('drop', (e) => {
   e.preventDefault();
-  stage.classList.remove('dragging');
-  upload([...e.dataTransfer.files]);
+  dragCounter = 0;
+  if (dropOverlay) {
+    dropOverlay.classList.remove('active');
+    dropOverlay.hidden = true;
+  }
+  stage?.classList.remove('dragging');
+  if (e.dataTransfer && e.dataTransfer.files?.length) {
+    upload([...e.dataTransfer.files]);
+  }
 });
 
 /* ---- sheets ---- */
@@ -2120,7 +2523,15 @@ function renderSheets() {
   if (document.activeElement !== $('#myName')) $('#myName').value = local.get('rooftop-name') || '';
   $('#pcName').textContent = state.me || 'the PC';
   $('#deviceList').replaceChildren(...state.devices.map((d) => {
-    const li = el('li', { className: d.kind === 'PC' ? '' : 'tap' }, avatar(d), el('span', { className: 'dev-name', textContent: d.name }), el('span', { className: 'kind', textContent: d.kind }));
+    const sub = [d.platform, d.browser].filter(Boolean).join(' · ');
+    const nameSpan = el('span', { className: 'dev-name' },
+      el('span', { className: 'dev-online-dot' }),
+      el('span', { className: 'dev-label', textContent: d.name })
+    );
+    const info = sub
+      ? el('div', { className: 'dev-info' }, nameSpan, el('span', { className: 'dev-subtext', textContent: sub }))
+      : nameSpan;
+    const li = el('li', { className: d.kind === 'PC' ? '' : 'tap' }, avatar(d), info, el('span', { className: 'kind', textContent: d.kind }));
     if (d.kind !== 'PC') { li.dataset.id = d.id; li.title = `Chat with ${d.name}`; }
     return li;
   }));
@@ -2135,8 +2546,17 @@ function renderSheets() {
 /* ---- the PC's own console ---- */
 function renderHost() {
   $('#hostCount').textContent = state.devices.length;
-  $('#hostDevices').replaceChildren(...state.devices.map((d) =>
-    el('li', {}, avatar(d), el('span', { className: 'dev-name', textContent: d.name }), el('span', { className: 'kind', textContent: d.kind }))));
+  $('#hostDevices').replaceChildren(...state.devices.map((d) => {
+    const sub = [d.platform, d.browser].filter(Boolean).join(' · ');
+    const nameSpan = el('span', { className: 'dev-name' },
+      el('span', { className: 'dev-online-dot' }),
+      el('span', { className: 'dev-label', textContent: d.name })
+    );
+    const info = sub
+      ? el('div', { className: 'dev-info' }, nameSpan, el('span', { className: 'dev-subtext', textContent: sub }))
+      : nameSpan;
+    return el('li', {}, avatar(d), info, el('span', { className: 'kind', textContent: d.kind }));
+  }));
   $('#hostDevices').hidden = !state.devices.length;
   $('#hostDevicesEmpty').hidden = state.devices.length > 0;
 
@@ -2190,6 +2610,7 @@ function drawQr(canvas, rows) {
 }
 
 $('#copyUrl').addEventListener('click', () => copyText(hostUrl));
+$('#copyPin')?.addEventListener('click', () => copyText($('#hostPin')?.textContent || ''));
 
 // Ending a session takes two clicks, so a stray click cannot kick everyone off.
 let sessionArmed = 0;
@@ -2624,7 +3045,23 @@ $('#deviceList').addEventListener('click', (e) => {
   if (li) { $('#sheet-nearby').close(); openChat('p:' + li.dataset.id); }
 });
 $('#sendToChat').addEventListener('click', () => { const to = $('#sendTo').value; if (to !== '*') openChat('p:' + to); });
-$('#sendTo').addEventListener('change', () => { $('#sendToChat').hidden = $('#sendTo').value === '*'; });
+$('#sendTo').addEventListener('change', () => {
+  $('#sendToChat').hidden = $('#sendTo').value === '*';
+  renderRecipients(true);
+});
+$('#sendToBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleSendToMenu();
+});
+document.addEventListener('pointerdown', (e) => {
+  const wrap = $('.to-picker-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    toggleSendToMenu(false);
+  }
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') toggleSendToMenu(false);
+});
 $('#hostOpenChat')?.addEventListener('click', () => openChat(null));
 setInterval(() => { if ($('#sheet-notes').open) loadChat(); }, 1500); // quicker while the chat is open
 

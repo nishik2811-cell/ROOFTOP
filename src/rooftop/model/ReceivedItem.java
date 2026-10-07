@@ -11,4 +11,9 @@ public record ReceivedItem(String name, long size, String from, String fromId, S
     public boolean visibleTo(String deviceId) {
         return EVERYONE.equals(to) || to.equals(deviceId) || fromId.equals(deviceId);
     }
+
+    /** Broad category for UI badges and previews: image, video, audio, document, archive, code, or file. */
+    public String category() {
+        return Inbox.category(name);
+    }
 }

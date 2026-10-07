@@ -33,6 +33,22 @@ public class History {
         return new ArrayList<>(entries);
     }
 
+    public synchronized long totalBytesTransferred() {
+        long sum = 0;
+        for (Entry e : entries) if (e.ok()) sum += e.size();
+        return sum;
+    }
+
+    public synchronized int totalCount() {
+        return entries.size();
+    }
+
+    public synchronized int successfulCount() {
+        int count = 0;
+        for (Entry e : entries) if (e.ok()) count++;
+        return count;
+    }
+
     public synchronized void clear() {
         entries.clear();
     }

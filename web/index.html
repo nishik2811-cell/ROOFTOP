@@ -23,6 +23,8 @@
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M8 9h8"/><path d="M8 13h6"/><path d="M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5l-5 3v-3h-2a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3h12z"/></symbol>
   <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0 -3 -3.85"/></symbol>
 </svg>
 
 <div class="intro" id="intro" hidden>
@@ -66,10 +68,16 @@
     <aside class="story" id="story" aria-label="Selected file" hidden>
       <button class="story-close" type="button" id="storyClose" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
       <div class="story-art" id="storyArt"></div>
-      <p class="story-kicker" id="storyKicker"></p>
+      <div class="story-tags">
+        <span class="story-badge" id="storyCategory">FILE</span>
+        <p class="story-kicker" id="storyKicker"></p>
+      </div>
       <h2 class="story-title" id="storyTitle"></h2>
       <p class="story-meta" id="storyMeta"></p>
-      <a class="pill pill-primary story-save" id="storySave" download><span class="disc"><svg class="i"><use href="#i-down"/></svg></span>Save file</a>
+      <div class="story-actions">
+        <a class="pill pill-primary story-save" id="storySave" download><span class="disc"><svg class="i"><use href="#i-down"/></svg></span>Save file</a>
+        <a class="pill story-open-tab" id="storyOpenTab" target="_blank" rel="noopener">Open in tab</a>
+      </div>
       <div class="story-nav">
         <button type="button" id="storyPrev" aria-label="Previous file"><svg class="i"><use href="#i-left"/></svg></button>
         <span id="storyCount"></span>
@@ -123,11 +131,18 @@
     </aside>
 
     <div class="bar bar-bottom">
-      <label class="pill pill-to" for="sendTo">
-        <span class="to-label">Send to</span>
-        <select id="sendTo" aria-label="Who gets the files and text you send"><option value="*">Everyone</option></select>
-        <svg class="i to-caret" aria-hidden="true"><use href="#i-right"/></svg>
-      </label>
+      <div class="to-picker-wrap">
+        <button class="pill pill-to" type="button" id="sendToBtn" aria-haspopup="listbox" aria-expanded="false">
+          <span class="to-label">Send to</span>
+          <span class="to-current" id="sendToName">Everyone</span>
+          <svg class="i to-caret" aria-hidden="true"><use href="#i-right"/></svg>
+        </button>
+        <select id="sendTo" class="sr-only" tabindex="-1" aria-hidden="true"><option value="*">Everyone</option></select>
+        <div class="to-menu" id="sendToMenu" role="listbox" hidden>
+          <div class="to-menu-head">Send recipient</div>
+          <ul class="to-menu-list" id="sendToList"></ul>
+        </div>
+      </div>
       <button class="round" type="button" id="sendToChat" aria-label="Chat with this person" hidden><svg class="i"><use href="#i-chat"/></svg></button>
       <button class="round" type="button" id="themeBtn" aria-label="Switch day and night" aria-pressed="false"><svg class="i"><use href="#i-sun"/></svg></button>
     </div>
@@ -139,7 +154,7 @@
       <h2>Scan to connect</h2>
       <div class="qr-wrap"><canvas id="hostQr" width="480" height="480" aria-label="QR code that opens Rooftop on a phone"></canvas></div>
       <p class="host-url"><span id="hostUrl">Starting</span><button class="icon-btn" type="button" id="copyUrl" aria-label="Copy link"><svg class="i"><use href="#i-copy"/></svg></button></p>
-      <p class="host-pin">PIN <strong id="hostPin">------</strong></p>
+      <p class="host-pin">PIN <strong id="hostPin">------</strong><button class="icon-btn" type="button" id="copyPin" aria-label="Copy PIN" title="Copy PIN"><svg class="i"><use href="#i-copy"/></svg></button></p>
       <form class="name-form" id="hostNameForm">
         <label for="hostName">This PC is called</label>
         <span class="name-row"><input id="hostName" maxlength="32" autocomplete="off" spellcheck="false"><button class="btn" type="submit">Save</button></span>
@@ -185,6 +200,14 @@
       <p class="empty notify-note" data-notify-note></p>
     </section>
   </section>
+
+  <div class="drop-overlay" id="dropOverlay" hidden aria-hidden="true">
+    <div class="drop-box">
+      <span class="drop-icon"><svg class="i"><use href="#i-up"/></svg></span>
+      <h3 class="drop-title">Drop files to send</h3>
+      <p class="drop-subtitle" id="dropRecipient">Sending to Everyone</p>
+    </div>
+  </div>
 </main>
 
 
@@ -300,7 +323,19 @@
   <button class="btn btn-primary" type="button" id="scanStop">Cancel</button>
 </div>
 
-<div class="ring" id="ring" aria-hidden="true" hidden></div>
+<div class="ring" id="ring" aria-hidden="true" hidden>
+  <svg class="reticle" viewBox="0 0 40 40" width="40" height="40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path class="reticle-corner" d="M12 6 H6 V12" />
+    <path class="reticle-corner" d="M28 6 H34 V12" />
+    <path class="reticle-corner" d="M12 34 H6 V28" />
+    <path class="reticle-corner" d="M28 34 H34 V28" />
+    <line class="reticle-tick" x1="20" y1="1" x2="20" y2="4" />
+    <line class="reticle-tick" x1="20" y1="36" x2="20" y2="39" />
+    <line class="reticle-tick" x1="1" y1="20" x2="4" y2="20" />
+    <line class="reticle-tick" x1="36" y1="20" x2="39" y2="20" />
+    <circle class="reticle-pip" cx="20" cy="20" r="1.5" />
+  </svg>
+</div>
 <script src="/e2e.js"></script>
 <script src="/app.js"></script>
 </body>

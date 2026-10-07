@@ -439,15 +439,20 @@ public class WebServer {
         List<NetworkDevice> online = new ArrayList<>(app.devices().all());
         online.removeIf(d -> !d.isOnline() || d.id().equals(visitorId) || (!(d instanceof PhoneClient) && d.name().equals(visitor)));
         online.sort(Comparator.comparing(NetworkDevice::kind).thenComparing(NetworkDevice::name));
-        for (NetworkDevice d : online)
+        for (NetworkDevice d : online) {
+            String extra = (d instanceof PhoneClient pc)
+                    ? ",\"platform\":" + Texts.json(pc.platform()) + ",\"browser\":" + Texts.json(pc.browser())
+                    : ",\"platform\":\"Desktop\",\"browser\":\"Native\"";
             devices.add("{\"id\":" + Texts.json(d.id()) + ",\"name\":" + Texts.json(d.name()) + ",\"kind\":" + Texts.json(d.kind())
-                    + ",\"key\":" + Texts.json(d.publicKey()) + "}");
+                    + ",\"key\":" + Texts.json(d.publicKey()) + extra + "}");
+        }
 
         StringJoiner files = new StringJoiner(",", "[", "]");
         for (ReceivedItem i : app.inbox().newestFirst()) {
             if (!i.visibleTo(visitorId)) continue; // a file sent to one device stays private to it (and its sender)
             files.add("{\"name\":" + Texts.json(i.name()) + ",\"size\":" + i.size() + ",\"from\":" + Texts.json(i.from())
                     + ",\"to\":" + Texts.json(recipientName(i.to())) + ",\"at\":" + i.at()
+                    + ",\"category\":" + Texts.json(i.category())
                     + ",\"removable\":" + canRemove(i, visitorId, local) + ",\"mine\":" + i.fromId().equals(visitorId) + "}");
         }
 
@@ -468,11 +473,15 @@ public class WebServer {
                     + ",\"forMe\":" + (t.to().equals(visitorId) || ReceivedItem.EVERYONE.equals(t.to())) + ",\"at\":" + t.at() + "}");
         }
         List<History.Entry> history = app.history().newestFirst();
+        long totalBytes = app.history().totalBytesTransferred();
+        int totalFiles = app.history().totalCount();
+        String stats = "{\"totalBytes\":" + totalBytes + ",\"totalFiles\":" + totalFiles + ",\"inboxCount\":" + app.inbox().fileCount() + "}";
 
         return "{\"me\":" + Texts.json(app.me().name()) + ",\"meId\":" + Texts.json(app.me().id()) + ",\"you\":" + Texts.json(visitor)
                 + ",\"youId\":" + Texts.json(visitorId) + ",\"local\":" + local
                 + ",\"devices\":" + devices + ",\"files\":" + files + ",\"texts\":" + texts + ",\"sealed\":" + sealed
                 + ",\"historyAt\":" + (history.isEmpty() ? 0 : history.get(0).at())
+                + ",\"stats\":" + stats
                 + ",\"session\":" + Texts.json(app.session()) + ",\"meNamed\":" + app.named() + ",\"chatSeq\":" + app.chat().latest()
                 + ",\"meKey\":" + Texts.json(canReceiveSealed(app.me().id()) ? app.me().publicKey() : "")
                 + ",\"youKey\":" + Texts.json(local ? app.me().publicKey() : app.devices().find(visitorId).map(Device::publicKey).orElse("")) + "}";
