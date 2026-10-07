@@ -1021,14 +1021,23 @@ let seenTexts = new Set(); // for highlighting new rows in the PC's message list
 const city = createCity($('#city'), { imageUrl: fileUrl, onSelect: (i) => select(i), onHover: (i, x, y) => hover(i, x, y), onFrame: placeRemoveButtons });
 
 /* ---- removing files: an × on each file in the city and in the inbox. Two clicks, so a slip does not delete. ---- */
-async function removeFile(name, btn) {
-  if (!btn.classList.contains('armed')) {
-    document.querySelectorAll('.remove.armed').forEach((b) => b.classList.remove('armed'));
-    btn.classList.add('armed');
-    btn.setAttribute('aria-label', `Click again to remove ${name}`);
-    setTimeout(() => btn.classList.remove('armed'), 3000);
-    return;
-  }
+// Only one file can be "armed" at a time; the state lives here, not on the button, because the inbox list
+// is rebuilt on every poll and would otherwise forget the first click.
+let armedName = null, armedTimer = 0;
+function setArmed(name) {
+  armedName = name;
+  clearTimeout(armedTimer);
+  if (name) armedTimer = setTimeout(() => setArmed(null), 3000);
+  document.querySelectorAll('.remove').forEach((b) => {
+    const on = b.dataset.name === armedName;
+    b.classList.toggle('armed', on);
+    b.setAttribute('aria-label', on ? `Click again to remove ${b.dataset.name}` : `Remove ${b.dataset.name}`);
+  });
+}
+
+async function removeFile(name) {
+  if (armedName !== name) { setArmed(name); return; }
+  setArmed(null);
   try {
     await call('/api/remove?name=' + encodeURIComponent(name), { method: 'POST' });
     toast(`Removed ${name}`);
@@ -1041,8 +1050,11 @@ async function removeFile(name, btn) {
 
 function removeButton(name) {
   const b = el('button', { type: 'button', className: 'remove' }, icon('i-x'));
-  b.setAttribute('aria-label', `Remove ${name}`);
-  b.addEventListener('click', (e) => { e.stopPropagation(); removeFile(name, b); });
+  b.dataset.name = name;
+  b.classList.toggle('armed', armedName === name);
+  b.setAttribute('aria-label', (armedName === name ? 'Click again to remove ' : 'Remove ') + name);
+  b.addEventListener('pointerdown', (e) => e.stopPropagation()); // never starts a drag of the city
+  b.addEventListener('click', (e) => { e.stopPropagation(); removeFile(name); });
   return b;
 }
 
@@ -1060,7 +1072,7 @@ function placeRemoveButtons(points) {
     if (!b) { b = removeButton(name); pinButtons.set(name, b); pinLayer.append(b); }
     const { x, y } = points[i];
     b.hidden = x < 8 || y < 8 || x > w - 8 || y > h - 8;
-    b.style.transform = `translate(${Math.round(x - 11)}px, ${Math.round(y - 11)}px)`;
+    b.style.transform = `translate3d(${x - 11}px, ${y - 11}px, 0)`;
   });
   for (const [name, b] of pinButtons) if (!seen.has(name)) { b.remove(); pinButtons.delete(name); }
 }

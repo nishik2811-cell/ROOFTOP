@@ -1071,7 +1071,20 @@ body.intro-on .credits { visibility: hidden; }
 .remove .i { width: 12px; height: 12px; }
 .remove:hover, .remove:focus-visible { background: #d9412b; }
 .remove.armed { background: #d9412b; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35); }
-.remove-layer .remove { position: absolute; left: 0; top: 0; pointer-events: auto; }
+.remove-layer .remove { position: absolute; left: 0; top: 0; pointer-events: auto; will-change: transform; transition: background 0.15s; }
 .files .remove { flex: none; margin-left: 6px; border-color: currentColor; color: inherit; background: transparent; }
 .files .remove:hover, .files .remove.armed { background: #d9412b; color: #fff; }
 body.intro-on .remove-layer { visibility: hidden; }
+.remove-layer .remove.armed::after {
+  content: "Remove?";
+  position: absolute;
+  left: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #d9412b;
+  color: #fff;
+  font: 600 11px var(--mono);
+  white-space: nowrap;
+}
