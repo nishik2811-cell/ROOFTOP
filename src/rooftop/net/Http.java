@@ -132,7 +132,11 @@ public final class Http {
             while (!server.isClosed()) {
                 try {
                     Socket socket = server.accept();
-                    pool.execute(() -> handle(socket, handler, log));
+                    try {
+                        pool.execute(() -> handle(socket, handler, log));
+                    } catch (java.util.concurrent.RejectedExecutionException busy) {
+                        socket.close(); // every worker is busy: the browser retries
+                    }
                 } catch (IOException e) {
                     if (!server.isClosed()) log.accept("http accept failed: " + e.getMessage());
                 }
@@ -143,8 +147,9 @@ public final class Http {
     private static void handle(Socket socket, Handler handler, Consumer<String> log) {
         try (socket) {
             socket.setSoTimeout(TIMEOUT_MS);
-            InputStream in = new BufferedInputStream(socket.getInputStream());
-            OutputStream out = new BufferedOutputStream(socket.getOutputStream());
+            socket.setTcpNoDelay(true); // send replies at once: Nagle + delayed ACKs otherwise stall every request ~40 ms
+            InputStream in = new BufferedInputStream(socket.getInputStream(), 64 * 1024);
+            OutputStream out = new BufferedOutputStream(socket.getOutputStream(), 64 * 1024);
             String requestLine = readLine(in);
             if (requestLine == null) return;
             String[] parts = requestLine.split(" ");

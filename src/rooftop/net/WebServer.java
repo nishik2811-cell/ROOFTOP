@@ -75,7 +75,9 @@ public class WebServer {
     }
 
     public void start() throws IOException {
-        ExecutorService pool = Executors.newCachedThreadPool();
+        // bounded: at most 64 requests at once (each page keeps one waiting in /api/wait); beyond that a request is refused
+        ExecutorService pool = new java.util.concurrent.ThreadPoolExecutor(4, 64, 30, java.util.concurrent.TimeUnit.SECONDS,
+                new java.util.concurrent.SynchronousQueue<>());
         // 127.0.0.1 explicitly: Android's getLoopbackAddress() is ::1, which the page at 127.0.0.1 cannot reach
         ServerSocket local = new ServerSocket(Wire.LOCAL_PORT, 50, InetAddress.getByName("127.0.0.1"));
         Http.serve(local, this::route, pool, app.log()::add);
@@ -128,8 +130,16 @@ public class WebServer {
         String visitor = local ? app.me().name() : guest.name();
         String visitorId = local ? app.me().id() : guest.id();
         boolean post = "POST".equals(req.method);
+        // anything a device POSTs may change what others see: wake every page waiting in /api/wait
+        // (piece uploads wake them only when the last piece is in, see sealedPiece)
+        if (post && !route.equals("/sealed/upload") && !route.equals("/upload")) app.changed();
 
         switch (route) {
+            case "/wait" -> { // long poll: returns as soon as something changes, or after 20 s
+                long seen;
+                try { seen = Long.parseLong(req.query.getOrDefault("v", "-1")); } catch (NumberFormatException e) { seen = -1; }
+                res.send(200, JSON, "{\"v\":" + app.awaitChange(seen, 20_000) + "}");
+            }
             case "/state" -> {
                 if (local) hostPageSeen = System.currentTimeMillis();
                 res.send(200, JSON, stateJson(visitor, visitorId, local));
@@ -163,6 +173,7 @@ public class WebServer {
                             recipientName(to), true, (System.nanoTime() - started) / 1_000_000, 1, ""));
                     app.log().add(from + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(req.length) + ", "
                             + Texts.speed(req.length, System.nanoTime() - started) + ")");
+                    app.changed();
                     res.send(200, JSON, "{\"name\":" + Texts.json(item.name()) + "}");
                 }
             }
@@ -307,6 +318,7 @@ public class WebServer {
         app.log().add(visitor + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(size)
                 + (offset > 0 ? ", last piece " + Texts.speed(req.length, System.nanoTime() - started) : "")
                 + (ratio < 0.95 ? String.format(Locale.ROOT, ", sent compressed to %d%%", Math.round(ratio * 100)) : "") + ")");
+        app.changed();
         res.send(200, JSON, "{\"done\":true,\"name\":" + Texts.json(item.name()) + "}");
     }
 
@@ -337,6 +349,7 @@ public class WebServer {
             res.send(409, JSON, "{\"offset\":" + e.expected() + "}");
             return;
         }
+        if (offset + req.length == size) app.changed(); // the recipients can collect it now
         res.header("Cache-Control", "no-store").send(200, JSON, "{\"offset\":" + (offset + req.length) + ",\"done\":" + (offset + req.length == size) + "}");
     }
 

@@ -158,6 +158,25 @@ public class Rooftop {
         return inbox;
     }
 
+    private long version; // bumped whenever something changes that pages should see
+
+    /** Something changed: wake every page waiting in /api/wait. */
+    public synchronized void changed() {
+        version++;
+        notifyAll();
+    }
+
+    /** Waits until the version moves past {@code seen}, at most {@code ms}; returns the current version. */
+    public synchronized long awaitChange(long seen, long ms) {
+        long end = System.currentTimeMillis() + ms;
+        try {
+            for (long left = ms; version <= seen && left > 0; left = end - System.currentTimeMillis()) wait(left);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return version;
+    }
+
     public SealedBox sealed() {
         return sealed;
     }

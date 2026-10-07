@@ -155,9 +155,29 @@ java src/rooftop/Benchmark.java     # transfer speed on this PC
 ROOFTOP_LOG=rooftop.log node test/e2e-browser.mjs    # files end to end: three browsers
 ROOFTOP_LOG=rooftop.log node test/chat-browser.mjs   # chat end to end: the PC's page and three phones
 node test/names-browser.mjs                          # the name screen
+node test/layout-check.mjs                           # 320 to 1920 px: no overlaps, nothing off screen; the slider
+node test/speed-browser.mjs --mb 100 --runs 5        # speed of the phone path (seal, upload, decrypt) in Chrome
 ```
+Set `ROOFTOP_BROWSER_CHANNEL=chrome` to use an installed Chrome instead of Playwright's own browser.
 
-For real Wi-Fi speed, run `java src/rooftop/Benchmark.java serve` on one PC and `java src/rooftop/Benchmark.java to <ip>` on another.
+## Measured speed
+
+Measured on one laptop (Intel i7-13650HX, 20 threads, 22 GB RAM, Linux, Java 25, Chrome), 7 Oct 2026.
+Both ends ran on the same machine, so the network part is loopback: these are Rooftop's own limits, not Wi-Fi's.
+
+| Path | What is timed | Result (median) |
+|---|---|---|
+| PC to PC, encrypted channel only | `Benchmark.java`, 200 MB, 5 runs per chunk size | 1349 MB/s at the default 128 KB chunk (1190 to 1349 MB/s across 64 KB to 1 MB) |
+| PC to PC, the real send | `send` in the terminal, 300 MB, 3 runs: SPAKE2 handshake, encryption, SHA-256 on both ends, written to disk | 614 MB/s (539 to 711) |
+| Phone page to PC, sending | `test/speed-browser.mjs`, 100 MB, 5 runs: sealed in the page and uploaded over HTTPS | 111 MB/s |
+| Phone page to PC, end to end | the same, until the PC's own page has downloaded, decrypted and filed it in the inbox | 65 MB/s |
+
+What changed the browser numbers (same test, before, after):
+- Chrome uploads raw bytes at about 12 MB/s but a Blob at about 600 MB/s: pieces now go up as Blobs. Sending went from 11 to 62 MB/s.
+- The PC's page used to notice a new file only on its next 3-second poll; now it keeps one request open that the PC answers the moment a file is complete. End to end went from 8 to 44 MB/s.
+- Sealed 1 MB chunks now go up 4 at a time (fewer connections and TLS handshakes): sending 111 MB/s, end to end 65 MB/s.
+
+Over real Wi-Fi the radio is the limit. This laptop's link reported 487 Mbit/s transmit (about 61 MB/s at most, usually half that in practice), so expect Wi-Fi speed, not the numbers above. To measure it: run `java src/rooftop/Benchmark.java serve` on one PC and `java src/rooftop/Benchmark.java to <ip>` on another, or send a big file from a phone and read the speed in the sending tray.
 
 ## Building the APK
 

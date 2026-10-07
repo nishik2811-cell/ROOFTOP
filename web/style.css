@@ -1585,3 +1585,8 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
 @keyframes slide-shine { from { background-position: 100% 0; } to { background-position: -50% 0; } }
 @keyframes slide-nudge { 0%, 100% { transform: translateX(0); } 35% { transform: translateX(46px); } 65% { transform: translateX(12px); } }
 @media (prefers-reduced-motion: reduce) { .slide-text { animation: none; } }
+/* .pill > * is position: relative; the slider's parts sit on top of each other instead */
+.intro-slider > .slide-fill, .intro-slider > .slide-text, .intro-slider > .slide-knob { position: absolute; }
+.intro-slider > .slide-fill { z-index: 0; }
+.intro-slider > .slide-text { z-index: 1; }
+.intro-slider > .slide-knob { z-index: 2; }
