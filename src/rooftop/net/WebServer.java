@@ -144,6 +144,14 @@ public class WebServer {
                 res.send(200, TEXT, "ok");
             }
             case "/clip" -> res.send(200, TEXT, app.clipboard());
+            case "/session" -> { // only the host itself may end the session
+                if (!local) res.send(404, TEXT, "not found");
+                else if (!post) res.send(405, TEXT, "POST only");
+                else {
+                    app.newSession();
+                    res.send(200, JSON, connectJson());
+                }
+            }
             default -> {
                 if (route.startsWith("/files/")) {
                     String name = route.substring("/files/".length());

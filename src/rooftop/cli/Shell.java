@@ -132,6 +132,12 @@ public class Shell {
         app.printBanner();
     }
 
+    @Command(help = "end this session: new PIN, phones disconnected, messages cleared")
+    void session(String rest) throws IOException {
+        app.newSession();
+        app.printBanner();
+    }
+
     @Command(help = "open the radar window (AWT applet)")
     void radar(String rest) {
         RadarApplet.open(app.devices(), app.me().name());

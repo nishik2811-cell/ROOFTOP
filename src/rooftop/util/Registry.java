@@ -28,6 +28,13 @@ public class Registry<K, V extends Device> {
         return new ArrayList<>(entries.values());
     }
 
+    /** Drops every entry of one kind, e.g. all phones when a session ends. Returns how many went. */
+    public synchronized int removeType(Class<? extends V> type) {
+        int before = entries.size();
+        entries.values().removeIf(type::isInstance);
+        return before - entries.size();
+    }
+
     /** Generic method: {@code ofType(PcPeer.class)} returns a List<PcPeer>, no casts at the call site. */
     public synchronized <T extends V> List<T> ofType(Class<T> type) {
         List<T> out = new ArrayList<>();

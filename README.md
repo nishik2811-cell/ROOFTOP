@@ -12,7 +12,7 @@ Made by **Nishita, Aryan and Keshav** for the OOP using Java lab (24B15CS215).
 - Phones join by scanning a QR code, with no app needed.
 - Send files and text to **everyone** or to **one chosen device**.
 - Encrypted transfers: HTTPS for phones, ECDH + AES-256-GCM between PCs.
-- A 6-digit PIN protects every session.
+- A 6-digit PIN protects every session. **End session, start new** (PC panel) gives a fresh PIN and disconnects all phones.
 - Received files appear on billboards and walls of a small explorable city, with a day and night mode.
 
 ## Quick start
@@ -124,6 +124,7 @@ Type these in the window where Rooftop runs:
 | `text <pc> <pin> <message>` | send text to another PC's clipboard |
 | `inbox`, `rm <name>` | list or delete received files |
 | `qr` | show the link, QR code and PIN again |
+| `session` | end this session: new PIN, phones disconnected, messages cleared |
 | `radar` | open the radar window (applet) |
 | `log`, `help`, `quit` | |
 

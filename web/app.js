@@ -81,7 +81,7 @@ async function call(path, options) {
     const body = await res.json().catch(() => ({}));
     askPin(body.blocked
       ? 'Too many wrong tries from this device. Restart Rooftop on the PC to reset.'
-      : pin ? 'That PIN did not work. Check the PC screen.' : '');
+      : pin ? 'That PIN did not work. The PC may have started a new session, so check its screen.' : '');
     throw new PinError();
   }
   if (!res.ok) throw new Error((await res.text()) || res.statusText);
@@ -201,6 +201,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {} }) {
     const len = Math.min(5.2, b.x1 - b.x0 + 1.6), x0 = (b.x0 + b.x1) / 2 - len / 2, z = (b.z0 + b.z1) / 2, y0 = b.h + 0.9, y1 = y0 + len * 0.55;
     const board = { b, x0, x1: x0 + len, z, y0, y1, poly: [iso(x0, y1, z), iso(x0 + len, y1, z), iso(x0 + len, y0, z), iso(x0, y0, z)] };
     b.board = [board.poly[0], board.poly[1], iso(x0 + len, b.h, z), iso(x0, b.h, z)]; // the board plus its legs
+    for (const [px, py] of b.board) b.box = { x0: Math.min(b.box.x0, px), x1: Math.max(b.box.x1, px), y0: Math.min(b.box.y0, py), y1: Math.max(b.box.y1, py) };
     return board;
   });
   const walls = buildings.filter((b) => b.h >= 3 && !billboardTowers.includes(b) && inView(centerOf(endFace(b)), 70)
@@ -818,17 +819,20 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {} }) {
       const qx = px, qy = i < 2 ? py + 1 : py - 1; i ? ctx.lineTo(qx, qy) : ctx.moveTo(qx, qy);
     }); ctx.closePath(); ctx.fill();
     if (p.lit) { const h = iso(x + (along ? car.dir * L / 2 : 0), y + 0.15, z + (along ? 0 : car.dir * L / 2)); ctx.fillStyle = p.lit; ctx.fillRect(h[0] - 1.5, h[1] - 1.5, 3, 3); }
-    occlude(x, y, z, x * 2 + z * 2);
+    const [ex, ez] = along ? [L / 2, W / 2] : [W / 2, L / 2];
+    occlude(x - ex, x + ex, z - ez, z + ez, y);
   }
 
   // Paint back whatever stands in front of a moving thing, straight from the cached world, so it
   // passes behind buildings and billboards instead of over them.
-  function occlude(x, y, z, depth) {
-    const pt = iso(x, y + 0.2, z);
-    const r = 14;
+  function occlude(x0, x1, z0, z1, y) {
+    // On this projection a box hides another only if it lies wholly further along x or wholly further along z.
+    // (Comparing centres goes wrong for big buildings next to small cars.)
+    const left = iso(x0, y, z1), right = iso(x1, y, z0), top = iso(x0, y + 0.5, z0), bottom = iso(x1, y, z1);
+    const sx0 = left[0], sx1 = right[0], sy0 = top[1], sy1 = bottom[1];
     for (const b of buildings) {
-      if (b.depth <= depth) continue;
-      if (pt[0] + r < b.box.x0 || pt[0] - r > b.box.x1 || pt[1] + r < b.box.y0 || pt[1] - r > b.box.y1 + 2) continue;
+      if (!(b.x0 >= x1 - 0.01 || b.z0 >= z1 - 0.01)) continue;
+      if (sx1 < b.box.x0 || sx0 > b.box.x1 || sy1 < b.box.y0 || sy0 > b.box.y1) continue;
       ctx.save();
       ctx.beginPath();
       b.sil.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
@@ -1388,6 +1392,30 @@ function drawQr(canvas, rows) {
 }
 
 $('#copyUrl').addEventListener('click', () => copyText(hostUrl));
+
+// Ending a session takes two clicks, so a stray click cannot kick everyone off.
+let sessionArmed = 0;
+$('#newSession').addEventListener('click', async () => {
+  const btn = $('#newSession');
+  if (!sessionArmed) {
+    btn.textContent = 'Click again to end the session';
+    btn.classList.add('armed');
+    sessionArmed = setTimeout(() => { sessionArmed = 0; btn.textContent = 'End session, start new'; btn.classList.remove('armed'); }, 4000);
+    return;
+  }
+  clearTimeout(sessionArmed); sessionArmed = 0;
+  btn.classList.remove('armed');
+  btn.textContent = 'End session, start new';
+  try {
+    await call('/api/session', { method: 'POST' });
+    hostUrl = '';
+    await loadConnect();
+    await refresh();
+    toast('New session started. Share the new QR code or PIN.', 5000);
+  } catch {
+    toast('Could not start a new session.');
+  }
+});
 
 /* ---- text and clipboard ---- */
 $('#noteForm').addEventListener('submit', async (e) => {

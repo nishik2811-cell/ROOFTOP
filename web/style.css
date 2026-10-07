@@ -614,6 +614,20 @@ body.is-host [data-sheet="nearby"] { display: none; } /* the panel already lists
 .host-net.warn { color: var(--danger); }
 .host-help summary { color: var(--chalk-dim); font-size: 12px; cursor: pointer; }
 .host-help p { margin-top: 8px; }
+.session-btn {
+  margin-top: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--chalk-dim);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chalk);
+  font: 600 12px var(--mono);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.session-btn:hover, .session-btn:focus-visible { border-color: var(--chalk); }
+.session-btn.armed { background: var(--danger); border-color: var(--danger); color: #fff; }
+.session-note { margin: 0; color: var(--chalk-dim); font-size: 11px; line-height: 1.6; }
 
 .host-devices, .host-messages { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .host-devices li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }

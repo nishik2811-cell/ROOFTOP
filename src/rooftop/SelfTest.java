@@ -17,6 +17,7 @@ import rooftop.model.Inbox;
 import rooftop.model.Progress;
 import rooftop.security.FileNames;
 import rooftop.security.SecureChannel;
+import rooftop.security.PinGuard;
 import rooftop.util.Streams;
 import rooftop.util.Texts;
 
@@ -36,6 +37,17 @@ public class SelfTest {
             }
         }
         check(Texts.isPalindrome("123321") && !Texts.isPalindrome("123456"), "palindrome PINs detected");
+
+        // a new session gives a new PIN; the old one stops working but does not count as a wrong guess
+        PinGuard guard = new PinGuard();
+        String old = guard.pin();
+        guard.renew();
+        boolean oldRejected = false;
+        try { guard.check("1.2.3.4", old); } catch (rooftop.error.WrongPinException e) { oldRejected = !e.isBlocked(); }
+        for (int i = 0; i < 20; i++) try { guard.check("1.2.3.4", old); } catch (rooftop.error.WrongPinException ignored) { }
+        boolean newWorks = true;
+        try { guard.check("1.2.3.4", guard.pin()); } catch (rooftop.error.WrongPinException e) { newWorks = false; }
+        check(!guard.pin().equals(old) && oldRejected && newWorks, "new session: old PIN refused, phone not locked out");
 
         // duplicate names get numbered instead of overwriting
         Path dir = Files.createTempDirectory("rooftop-test");

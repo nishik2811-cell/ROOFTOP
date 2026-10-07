@@ -3,6 +3,7 @@ package rooftop;
 import java.io.IOException;
 import rooftop.model.Inbox;
 import rooftop.model.NetworkDevice;
+import rooftop.model.PhoneClient;
 import rooftop.model.ReceivedText;
 import rooftop.model.ThisDevice;
 import rooftop.net.Discovery;
@@ -59,6 +60,14 @@ public class Rooftop {
         inbox.addText(text, from);
         log.add("text from " + from + ": " + text);
         platform.setClipboard(text);
+    }
+
+    /** Ends the current session: new PIN, phones must join again, messages cleared, old files kept but private. */
+    public void newSession() {
+        pins.renew();
+        int phones = devices.removeType(PhoneClient.class);
+        inbox.newSession();
+        log.add("new session: PIN " + pins.pin() + ", " + phones + " phone(s) disconnected");
     }
 
     public String clipboard() {
