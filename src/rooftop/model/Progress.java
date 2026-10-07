@@ -13,6 +13,14 @@ public class Progress {
         done += bytes;
     }
 
+    public synchronized long done() {
+        return done;
+    }
+
+    public long total() {
+        return total;
+    }
+
     public synchronized int percent() {
         return total == 0 ? 100 : (int) (done * 100 / total);
     }

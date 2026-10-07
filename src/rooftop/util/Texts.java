@@ -37,6 +37,13 @@ public final class Texts {
         return String.format(Locale.ROOT, "%.1f MB/s", bytes / 1e6 / (nanos / 1e9));
     }
 
+    /** A rough time span for people: "8 s", "3 min", "1 h 5 min". */
+    public static String duration(long seconds) {
+        if (seconds < 60) return Math.max(1, seconds) + " s";
+        if (seconds < 3600) return Math.round(seconds / 60.0) + " min";
+        return seconds / 3600 + " h " + (seconds % 3600) / 60 + " min";
+    }
+
     /** Lower-case hex of some bytes (java.util.HexFormat is missing on older Android). */
     public static String hex(byte[] bytes) {
         StringBuilder sb = new StringBuilder(bytes.length * 2);

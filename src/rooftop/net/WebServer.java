@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.net.ssl.SSLContext;
@@ -22,6 +23,7 @@ import rooftop.error.InvalidFileNameException;
 import rooftop.error.OffsetMismatchException;
 import rooftop.error.WrongPinException;
 import rooftop.model.Device;
+import rooftop.model.History;
 import rooftop.model.NetworkDevice;
 import rooftop.model.PhoneClient;
 import rooftop.model.Progress;
@@ -59,8 +61,14 @@ public class WebServer {
         IMAGE_TYPES.put("avif", "image/avif");
     }
 
+    private static final long MAX_GZIP_PIECE = 64L << 20; // what one compressed piece may expand to
+
     private final Rooftop app;
     private String scheme = "https";
+    /** Resumable uploads in progress: when the first piece came, and bytes on the wire vs bytes of file so far. */
+    private final Map<String, long[]> uploads = new ConcurrentHashMap<>();
+    /** When this PC's own page last asked for the state: sealed files are only offered to it while it is open. */
+    private volatile long hostPageSeen;
 
     public WebServer(Rooftop app) {
         this.app = app;
@@ -121,34 +129,69 @@ public class WebServer {
         boolean post = "POST".equals(req.method);
 
         switch (route) {
-            case "/state" -> res.send(200, JSON, stateJson(visitor, visitorId, local));
+            case "/state" -> {
+                if (local) hostPageSeen = System.currentTimeMillis();
+                res.send(200, JSON, stateJson(visitor, visitorId, local));
+            }
+            case "/qr" -> { // the QR code for a device's own key link, so another device can scan it to verify the key
+                String text = req.query.getOrDefault("text", "");
+                if (text.isEmpty() || text.length() > 400) res.send(400, TEXT, "bad text");
+                else res.header("Cache-Control", "no-store").send(200, JSON, qrJson(text));
+            }
             case "/connect" -> {
                 if (local) res.send(200, JSON, connectJson());
                 else res.send(404, TEXT, "not found");
             }
             case "/upload" -> {
+                if (!local) { // other devices send end-to-end encrypted files only (see /sealed/upload)
+                    req.body.skip(Math.max(0, req.length));
+                    res.send(403, TEXT, "this Rooftop only takes end-to-end encrypted files. Reload the page.");
+                    return;
+                }
+                // the PC's own page saves files it decrypted; "as" keeps the real sender on the file
+                NetworkDevice sender = req.query.containsKey("as") ? app.devices().find(req.query.get("as")).orElse(null) : null;
+                String from = sender != null ? sender.name() : visitor, fromId = sender != null ? sender.id() : visitorId;
                 if (!post) res.send(405, TEXT, "POST only");
                 else if (req.length < 0) res.send(411, TEXT, "Content-Length required");
-                else if (req.query.containsKey("key")) uploadPiece(req, res, visitor, visitorId);
+                else if (req.query.containsKey("key")) uploadPiece(req, res, from, fromId);
                 else {
                     String to = recipient(req.query.get("to"));
                     long started = System.nanoTime();
-                    ReceivedItem item = app.inbox().store(req.query.get("name"), req.body, req.length, visitor, visitorId, to, new Progress(req.length));
-                    app.log().add(visitor + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(req.length) + ", "
+                    ReceivedItem item = app.inbox().store(req.query.get("name"), req.body, req.length, from, fromId, to, new Progress(req.length));
+                    app.history().add(new History.Entry(System.currentTimeMillis(), item.name(), item.size(), from, fromId, to,
+                            recipientName(to), true, (System.nanoTime() - started) / 1_000_000, 1, ""));
+                    app.log().add(from + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(req.length) + ", "
                             + Texts.speed(req.length, System.nanoTime() - started) + ")");
                     res.send(200, JSON, "{\"name\":" + Texts.json(item.name()) + "}");
                 }
             }
-            case "/text" -> {
+            case "/text" -> { // chat is end to end now (see /chat); browsers never send text in plain
+                req.body.skip(Math.max(0, req.length));
+                res.send(410, TEXT, "chat is end-to-end encrypted now. Reload the page.");
+            }
+            case "/chat/send" -> {
                 if (!post) {
                     res.send(405, TEXT, "POST only");
                     return;
                 }
-                String text = new String(rooftop.util.Streams.readUpTo(req.body, Wire.MAX_TEXT), StandardCharsets.UTF_8);
-                if (!text.trim().isEmpty()) app.receiveText(text, visitor);
-                res.send(200, TEXT, "ok");
+                chatSend(req, res, visitorId);
             }
-            case "/clip" -> res.send(200, TEXT, app.clipboard());
+            case "/chat" -> res.header("Cache-Control", "no-store").send(200, JSON, chatJson(req, visitorId));
+            case "/clip" -> {
+                if (local) res.send(200, TEXT, app.clipboard());
+                else res.send(404, TEXT, "not found");
+            }
+            case "/name" -> { // a device picks the name others see
+                if (!post) {
+                    res.send(405, TEXT, "POST only");
+                    return;
+                }
+                String wanted = new String(rooftop.util.Streams.readUpTo(req.body, 400), StandardCharsets.UTF_8);
+                boolean ok = local ? app.rename(wanted) : guest.rename(wanted);
+                if (ok) app.log().add(visitor + " is now called " + (local ? app.me() : guest).name());
+                res.send(ok ? 200 : 400, JSON, "{\"name\":" + Texts.json((local ? app.me() : guest).name()) + "}");
+            }
+            case "/history" -> res.header("Cache-Control", "no-store").send(200, JSON, historyJson(visitorId, local));
             case "/key" -> { // a browser registers its end-to-end public key
                 if (!post) res.send(405, TEXT, "POST only");
                 else {
@@ -215,29 +258,54 @@ public class WebServer {
             res.send(400, TEXT, "bad size or offset");
             return;
         }
-        if (size < 0 || offset < 0 || offset + req.length > size) {
+        // A piece may come gzipped when the browser found that the file shrinks; raw is its length unpacked.
+        boolean gzip = "gzip".equals(req.query.get("z"));
+        long count = req.length;
+        if (gzip) {
+            try {
+                count = Long.parseLong(req.query.getOrDefault("raw", "-1"));
+            } catch (NumberFormatException e) {
+                count = -1;
+            }
+        }
+        if (size < 0 || offset < 0 || count < 0 || (gzip && count > MAX_GZIP_PIECE) || offset + count > size) {
+            req.body.skip(req.length);
             res.send(400, TEXT, "bad size or offset");
             return;
         }
         // the id mixes in who is sending, so two phones with the same file never write into each other's upload
         String id = Texts.sha256(visitorId + "|" + req.query.get("key")).substring(0, 32);
+        long[] stats = uploads.computeIfAbsent(id, k -> new long[]{System.nanoTime(), 0, 0});
         long started = System.nanoTime();
         try {
-            app.inbox().append(id, offset, req.body, req.length, new Progress(req.length));
+            java.io.InputStream body = gzip ? new java.util.zip.GZIPInputStream(req.body, 64 * 1024) : req.body;
+            app.inbox().append(id, offset, body, count, new Progress(count));
+            if (gzip) while (req.body.read() >= 0) { /* the gzip trailer */ }
         } catch (OffsetMismatchException e) {
             req.body.skip(req.length); // read the piece anyway, or the browser sees a reset instead of our answer
             res.send(409, JSON, "{\"offset\":" + e.expected() + "}");
             return;
+        } catch (java.util.zip.ZipException e) { // what arrived unpacked is kept; the browser carries on from there
+            req.body.skip(req.length);
+            res.send(409, JSON, "{\"offset\":" + app.inbox().received(id) + "}");
+            return;
         }
-        long have = offset + req.length;
+        stats[1] += req.length;
+        stats[2] += count;
+        long have = offset + count;
         if (have < size) {
             res.send(200, JSON, "{\"offset\":" + have + "}");
             return;
         }
         String to = recipient(req.query.get("to"));
         ReceivedItem item = app.inbox().finish(id, req.query.get("name"), size, visitor, visitorId, to);
+        uploads.remove(id);
+        double ratio = stats[2] > 0 ? (double) stats[1] / stats[2] : 1;
+        app.history().add(new History.Entry(System.currentTimeMillis(), item.name(), size, visitor, visitorId, to, recipientName(to),
+                true, (System.nanoTime() - stats[0]) / 1_000_000, ratio, ""));
         app.log().add(visitor + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(size)
-                + (offset > 0 ? ", last piece " + Texts.speed(req.length, System.nanoTime() - started) : "") + ")");
+                + (offset > 0 ? ", last piece " + Texts.speed(req.length, System.nanoTime() - started) : "")
+                + (ratio < 0.95 ? String.format(Locale.ROOT, ", sent compressed to %d%%", Math.round(ratio * 100)) : "") + ")");
         res.send(200, JSON, "{\"done\":true,\"name\":" + Texts.json(item.name()) + "}");
     }
 
@@ -246,8 +314,8 @@ public class WebServer {
      * The recipient must be a connected browser with a key; the PC itself never takes sealed files.
      */
     private void sealedPiece(Http.Request req, Http.Response res, String visitorId) throws IOException {
-        String to = req.query.getOrDefault("to", "");
-        boolean recipientOk = app.devices().find(to).filter(d -> !d.publicKey().isEmpty()).isPresent() && !to.equals(visitorId);
+        java.util.Set<String> to = new java.util.HashSet<>(java.util.Arrays.asList(req.query.getOrDefault("to", "").split(",")));
+        boolean recipientOk = !to.isEmpty() && to.size() <= 255 && !to.contains(visitorId) && to.stream().allMatch(this::canReceiveSealed);
         long size, offset;
         try {
             size = Long.parseLong(req.query.getOrDefault("size", "-1"));
@@ -271,9 +339,65 @@ public class WebServer {
         res.header("Cache-Control", "no-store").send(200, JSON, "{\"offset\":" + (offset + req.length) + ",\"done\":" + (offset + req.length == size) + "}");
     }
 
+    /** Stores one sealed chat envelope for the listed devices. Deliberately silent: no log, no history. */
+    private void chatSend(Http.Request req, Http.Response res, String visitorId) throws IOException {
+        if (req.length < 0 || req.length > rooftop.model.ChatBox.MAX_BYTES) {
+            req.body.skip(Math.max(0, req.length));
+            res.send(413, TEXT, "message too large");
+            return;
+        }
+        byte[] bytes = rooftop.util.Streams.readFully(req.body, (int) req.length);
+        java.util.Set<String> to = new java.util.HashSet<>(java.util.Arrays.asList(req.query.getOrDefault("to", "").split(",")));
+        boolean ok = !to.isEmpty() && to.size() <= 255 && to.stream().allMatch(id -> id.equals(visitorId) || canChat(id));
+        int ttl;
+        try {
+            ttl = Math.max(0, Math.min(60, Integer.parseInt(req.query.getOrDefault("ttl", "0"))));
+        } catch (NumberFormatException e) {
+            ttl = 0;
+        }
+        if (!ok) {
+            res.send(400, TEXT, "someone in that conversation cannot receive encrypted chat");
+            return;
+        }
+        long seq = app.chat().add(visitorId, to, bytes, ttl);
+        res.header("Cache-Control", "no-store").send(200, JSON, "{\"seq\":" + seq + "}");
+    }
+
+    /** Chat reaches devices that have a key even while they are briefly away (a phone in a pocket), not just online ones. */
+    private boolean canChat(String id) {
+        if (app.me().id().equals(id)) return !app.me().publicKey().isEmpty();
+        return app.devices().find(id).filter(d -> !d.publicKey().isEmpty()).isPresent();
+    }
+
+    private String chatJson(Http.Request req, String visitorId) {
+        long after;
+        try {
+            after = Long.parseLong(req.query.getOrDefault("after", "0"));
+        } catch (NumberFormatException e) {
+            after = 0;
+        }
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        for (rooftop.model.ChatBox.Envelope e : app.chat().since(after, visitorId))
+            out.add("{\"seq\":" + e.seq() + ",\"from\":" + Texts.json(e.from()) + ",\"at\":" + e.at()
+                    + ",\"data\":\"" + java.util.Base64.getEncoder().encodeToString(e.bytes()) + "\"}");
+        return "{\"latest\":" + app.chat().latest() + ",\"envelopes\":" + out + "}";
+    }
+
+    /** A device with an end-to-end key: a connected browser, or this PC while its own page is open. */
+    private boolean canReceiveSealed(String id) {
+        if (app.me().id().equals(id)) return hostPageOpen() && !app.me().publicKey().isEmpty();
+        return app.devices().find(id).filter(d -> d.isOnline() && !d.publicKey().isEmpty()).isPresent();
+    }
+
+    private boolean hostPageOpen() {
+        return System.currentTimeMillis() - hostPageSeen < 10_000;
+    }
+
     private PhoneClient visitor(Http.Request req) {
         String ua = req.header("User-Agent") != null ? req.header("User-Agent") : "";
-        NetworkDevice device = app.devices().getOrAdd("web " + req.remote.getHostAddress(), () -> new PhoneClient(ua, req.remote));
+        String browser = req.query.getOrDefault("device", "");
+        String id = "web " + req.remote.getHostAddress() + (browser.matches("[0-9a-f]{16,40}") ? " " + browser : "");
+        NetworkDevice device = app.devices().getOrAdd(id, () -> new PhoneClient(ua, req.remote, id));
         device.touch();
         return (PhoneClient) device; // keys starting with "web " only ever hold PhoneClients
     }
@@ -293,13 +417,13 @@ public class WebServer {
     private String recipientName(String to) {
         if (ReceivedItem.EVERYONE.equals(to)) return "everyone";
         if (app.me().id().equals(to)) return app.me().name();
-        return app.devices().find(to).map(NetworkDevice::name).orElse(to);
+        return app.devices().find(to).map(NetworkDevice::name).orElse("a device that left");
     }
 
     private String stateJson(String visitor, String visitorId, boolean local) {
         StringJoiner devices = new StringJoiner(",", "[", "]");
         List<NetworkDevice> online = new ArrayList<>(app.devices().all());
-        online.removeIf(d -> !d.isOnline() || d.name().equals(visitor));
+        online.removeIf(d -> !d.isOnline() || d.id().equals(visitorId) || (!(d instanceof PhoneClient) && d.name().equals(visitor)));
         online.sort(Comparator.comparing(NetworkDevice::kind).thenComparing(NetworkDevice::name));
         for (NetworkDevice d : online)
             devices.add("{\"id\":" + Texts.json(d.id()) + ",\"name\":" + Texts.json(d.name()) + ",\"kind\":" + Texts.json(d.kind())
@@ -310,10 +434,10 @@ public class WebServer {
             if (!i.visibleTo(visitorId)) continue; // a file sent to one device stays private to it (and its sender)
             files.add("{\"name\":" + Texts.json(i.name()) + ",\"size\":" + i.size() + ",\"from\":" + Texts.json(i.from())
                     + ",\"to\":" + Texts.json(recipientName(i.to())) + ",\"at\":" + i.at()
-                    + ",\"removable\":" + canRemove(i, visitorId, local) + "}");
+                    + ",\"removable\":" + canRemove(i, visitorId, local) + ",\"mine\":" + i.fromId().equals(visitorId) + "}");
         }
 
-        StringJoiner sealed = new StringJoiner(",", "[", "]"); // only ever this visitor's own, and never for the host
+        StringJoiner sealed = new StringJoiner(",", "[", "]"); // only ever this visitor's own
         try {
             for (SealedBox.Waiting w : app.sealed().waitingFor(visitorId))
                 sealed.add("{\"id\":" + Texts.json(w.id()) + ",\"size\":" + w.size() + ",\"at\":" + w.at() + "}");
@@ -322,13 +446,45 @@ public class WebServer {
         }
 
         StringJoiner texts = new StringJoiner(",", "[", "]");
-        for (ReceivedText t : app.inbox().texts())
-            texts.add("{\"text\":" + Texts.json(t.text()) + ",\"from\":" + Texts.json(t.from()) + ",\"at\":" + t.at() + "}");
+        for (ReceivedText t : app.inbox().texts()) {
+            if (!local && !t.visibleTo(visitorId)) continue; // the PC's own screen sees every message that passed through it
+            texts.add("{\"text\":" + Texts.json(t.text()) + ",\"from\":" + Texts.json(t.from()) + ",\"fromId\":" + Texts.json(t.fromId())
+                    + ",\"to\":" + Texts.json(recipientName(t.to()))
+                    + ",\"private\":" + !ReceivedItem.EVERYONE.equals(t.to()) + ",\"mine\":" + t.fromId().equals(visitorId)
+                    + ",\"forMe\":" + (t.to().equals(visitorId) || ReceivedItem.EVERYONE.equals(t.to())) + ",\"at\":" + t.at() + "}");
+        }
+        List<History.Entry> history = app.history().newestFirst();
 
         return "{\"me\":" + Texts.json(app.me().name()) + ",\"meId\":" + Texts.json(app.me().id()) + ",\"you\":" + Texts.json(visitor)
                 + ",\"youId\":" + Texts.json(visitorId) + ",\"local\":" + local
                 + ",\"devices\":" + devices + ",\"files\":" + files + ",\"texts\":" + texts + ",\"sealed\":" + sealed
+                + ",\"historyAt\":" + (history.isEmpty() ? 0 : history.get(0).at())
+                + ",\"session\":" + Texts.json(app.session()) + ",\"meNamed\":" + app.named() + ",\"chatSeq\":" + app.chat().latest()
+                + ",\"meKey\":" + Texts.json(canReceiveSealed(app.me().id()) ? app.me().publicKey() : "")
                 + ",\"youKey\":" + Texts.json(local ? app.me().publicKey() : app.devices().find(visitorId).map(Device::publicKey).orElse("")) + "}";
+    }
+
+    private String historyJson(String visitorId, boolean local) {
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        for (History.Entry e : app.history().newestFirst()) {
+            if (!local && !e.visibleTo(visitorId)) continue;
+            out.add("{\"at\":" + e.at() + ",\"name\":" + Texts.json(e.name()) + ",\"size\":" + e.size() + ",\"from\":" + Texts.json(e.from())
+                    + ",\"fromId\":" + Texts.json(e.fromId())
+                    + ",\"to\":" + Texts.json(e.toName()) + ",\"ok\":" + e.ok() + ",\"ms\":" + e.millis()
+                    + ",\"ratio\":" + String.format(Locale.ROOT, "%.3f", e.ratio()) + ",\"note\":" + Texts.json(e.note())
+                    + ",\"mine\":" + e.fromId().equals(visitorId) + "}");
+        }
+        return out.toString();
+    }
+
+    private static String qrJson(String text) {
+        StringJoiner rows = new StringJoiner(",", "[", "]");
+        for (boolean[] row : QrCode.encode(text)) {
+            StringBuilder sb = new StringBuilder(row.length);
+            for (boolean dark : row) sb.append(dark ? '1' : '0');
+            rows.add("\"" + sb + "\"");
+        }
+        return "{\"qr\":" + rows + "}";
     }
 
     private String connectJson() throws IOException {

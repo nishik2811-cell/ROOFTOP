@@ -1,6 +1,6 @@
 package rooftop.model;
 
-/** Single inheritance: the computer Rooftop is running on. */
+/** The computer Rooftop is running on. */
 public class ThisDevice extends Device {
     public ThisDevice(String name) {
         super(name);

@@ -2,7 +2,7 @@ package rooftop.model;
 
 /** Root of the device hierarchy. Everything that shows up on the map has a name and a kind. */
 public abstract class Device {
-    private final String name;
+    private volatile String name;
 
     protected Device(String name) {
         this.name = name;
@@ -10,6 +10,22 @@ public abstract class Device {
 
     public String name() {
         return name;
+    }
+
+    /** Gives the device the name its owner picked. Returns false (and keeps the old one) if nothing usable is left. */
+    public boolean rename(String wanted) {
+        String clean = cleanName(wanted);
+        if (clean == null) return false;
+        name = clean;
+        return true;
+    }
+
+    /** Up to 32 visible characters, single spaces, no control characters; null if that leaves nothing. */
+    public static String cleanName(String wanted) {
+        if (wanted == null) return null;
+        String clean = wanted.replaceAll("[\\p{Cntrl}\\p{Cf}]", "").replaceAll("\\s+", " ").trim();
+        if (clean.length() > 32) clean = clean.substring(0, 32).trim();
+        return clean.isEmpty() ? null : clean;
     }
 
     /** Stable id used to address files to this device. Names are for people; ids never change while it runs. */
@@ -21,6 +37,11 @@ public abstract class Device {
 
     public String publicKey() {
         return publicKey;
+    }
+
+    /** Forgets the end-to-end key, e.g. when a session ends and every browser makes a new one. */
+    public void clearPublicKey() {
+        publicKey = "";
     }
 
     /** A P-256 public key is 65 bytes, 87 characters of base64url. Anything else is ignored. */

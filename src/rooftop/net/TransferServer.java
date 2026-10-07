@@ -11,10 +11,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import rooftop.Rooftop;
+import rooftop.error.PinMismatchException;
 import rooftop.error.RooftopException;
 import rooftop.error.TransferFailedException;
 import rooftop.error.WrongPinException;
 import rooftop.model.Device;
+import rooftop.model.History;
 import rooftop.model.PcPeer;
 import rooftop.model.Payload;
 import rooftop.model.Progress;
@@ -50,9 +52,20 @@ public class TransferServer extends Thread {
 
     /** The one place receive errors stop. Everything below just throws. */
     private void handle(Socket socket) {
+        String ip = socket.getInetAddress().getHostAddress();
         try (socket) {
             socket.setSoTimeout(READ_TIMEOUT_MS);
-            receive(SecureChannel.open(socket, false), socket.getInetAddress().getHostAddress());
+            app.pins().checkNotBlocked(ip);
+            SecureChannel channel;
+            try {
+                channel = SecureChannel.open(socket, false, app.pins().pin());
+            } catch (PinMismatchException e) {
+                boolean blocked = app.pins().fail(ip);
+                app.log().add("refused " + ip + ": wrong PIN, or someone in the middle" + (blocked ? " (now blocked)" : ""));
+                return;
+            }
+            app.log().add("secure link from " + ip + ", safety code " + channel.safetyCode());
+            receive(channel, ip);
         } catch (WrongPinException e) {
             app.log().add(e.getMessage());
         } catch (RooftopException | IOException | IllegalArgumentException e) {
@@ -81,9 +94,9 @@ public class TransferServer extends Thread {
         if (Payload.TEXT.equals(header.type())) {
             if (header.size() > Wire.MAX_TEXT) throw new TransferFailedException("text from " + ip + " is too long");
             byte[] bytes = Streams.readFully(in, (int) header.size());
-            app.receiveText(new String(bytes, StandardCharsets.UTF_8), from);
+            app.receiveText(new String(bytes, StandardCharsets.UTF_8), from, from, rooftop.model.ThisDevice.ID);
         } else {
-            receiveFile(header, in, out, ip, from);
+            receiveFile(header, in, out, ip, from, Wire.FILE_FRAMED.equals(header.type()));
             return;
         }
         out.write(Wire.DONE);
@@ -91,7 +104,7 @@ public class TransferServer extends Thread {
     }
 
     /** Resumes from whatever arrived last time, then checks the SHA-256 of the whole file before showing it. */
-    private void receiveFile(Wire.Header header, DataInputStream in, OutputStream rawOut, String ip, String from)
+    private void receiveFile(Wire.Header header, DataInputStream in, OutputStream rawOut, String ip, String from, boolean framed)
             throws IOException, RooftopException {
         DataOutputStream out = new DataOutputStream(rawOut);
         long size = header.size();
@@ -109,7 +122,8 @@ public class TransferServer extends Thread {
         MessageDigest sha = TransferClient.sha256();
         app.inbox().digestReceived(id, sha);
         long started = System.nanoTime();
-        app.inbox().append(id, have, new DigestInputStream(in, sha), size - have, new Progress(size - have));
+        java.io.InputStream body = framed ? new Frames.Decoder(in) : in; // the decoder reads whole frames only, never the checksum
+        app.inbox().append(id, have, new DigestInputStream(body, sha), size - have, new Progress(size - have));
         byte[] expected = Streams.readFully(in, 32);
         if (!MessageDigest.isEqual(expected, sha.digest())) {
             app.inbox().discard(id);
@@ -117,9 +131,11 @@ public class TransferServer extends Thread {
             out.flush();
             throw new TransferFailedException(header.name() + " from " + from + " arrived damaged, discarded");
         }
-        ReceivedItem item = app.inbox().finish(id, header.name(), size, from, "", ReceivedItem.EVERYONE);
+        ReceivedItem item = app.inbox().finish(id, header.name(), size, from, from, ReceivedItem.EVERYONE);
         out.write(Wire.DONE);
         out.flush();
+        app.history().add(new History.Entry(System.currentTimeMillis(), item.name(), size, from, from, ReceivedItem.EVERYONE, "everyone",
+                true, (System.nanoTime() - started) / 1_000_000, 1, framed ? "compressed" : ""));
         app.log().add("saved " + item.name() + " from " + from + " (SHA-256 checked), " + Texts.speed(size - have, System.nanoTime() - started));
     }
 }
