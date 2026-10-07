@@ -1481,12 +1481,11 @@ body.is-host .host-more[hidden] { display: none !important; }
   body.is-host .frame > .credits { grid-row: auto; }
 }
 
-/* the cards under the city: everything centred */
-body.is-host .host-more .host-card { justify-items: center; text-align: center; }
-body.is-host .host-more .host-card h2 { justify-content: center; gap: 10px; }
-body.is-host .host-more .session-btn { justify-self: stretch; }
-body.is-host .host-more .host-messages li { text-align: left; }
-body.is-host .host-more .key-list { justify-self: stretch; }
+/* the cards under the city: heading at the top, the rest in the middle of the space below it */
+body.is-host .host-more .host-card { display: flex; flex-direction: column; gap: 12px; }
+body.is-host .host-more .host-card > h2 { margin-bottom: auto; }
+body.is-host .host-more .host-card::after { content: ""; margin-top: auto; }
+body.is-host .host-more .my-key, body.is-host .host-more .notify-btn { align-self: center; }
 .intro-e2e { display: inline-flex; align-items: center; gap: 6px; }
 .intro-e2e .i { width: 0.9em; height: 0.9em; }
 
