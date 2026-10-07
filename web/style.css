@@ -1052,3 +1052,26 @@ body.intro-on { overflow: hidden; }
 }
 .credits b { color: #b8462e; font-weight: 700; }
 body.intro-on .credits { visibility: hidden; }
+
+/* × to remove a file: pinned to each file in the city, and in the inbox list */
+.remove-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+.remove {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid #fbf3e6;
+  border-radius: 999px;
+  background: rgba(30, 24, 34, 0.82);
+  color: #fbf3e6;
+  cursor: pointer;
+  transition: background 0.15s, width 0.15s;
+}
+.remove .i { width: 12px; height: 12px; }
+.remove:hover, .remove:focus-visible { background: #d9412b; }
+.remove.armed { background: #d9412b; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35); }
+.remove-layer .remove { position: absolute; left: 0; top: 0; pointer-events: auto; }
+.files .remove { flex: none; margin-left: 6px; border-color: currentColor; color: inherit; background: transparent; }
+.files .remove:hover, .files .remove.armed { background: #d9412b; color: #fff; }
+body.intro-on .remove-layer { visibility: hidden; }

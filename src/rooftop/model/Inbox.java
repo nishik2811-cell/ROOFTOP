@@ -129,13 +129,13 @@ public class Inbox {
         if (texts.size() > MAX_TEXTS) texts.removeLast();
     }
 
-    /**
-     * A new session: messages are cleared, and files from before stay on this device (never deleted)
-     * but are no longer shown to phones.
-     */
-    public synchronized void newSession() {
+    /** A new session starts empty: messages cleared, and every file this inbox received is deleted. Returns how many. */
+    public synchronized int newSession() throws IOException {
         texts.clear();
-        items.replaceAll(i -> new ReceivedItem(i.name(), i.size(), i.from(), "", ThisDevice.ID, i.at()));
+        int removed = 0;
+        for (ReceivedItem i : new ArrayList<>(items))
+            if (remove(i.name())) removed++;
+        return removed;
     }
 
     public synchronized List<ReceivedText> texts() {

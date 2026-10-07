@@ -62,12 +62,12 @@ public class Rooftop {
         platform.setClipboard(text);
     }
 
-    /** Ends the current session: new PIN, phones must join again, messages cleared, old files kept but private. */
-    public void newSession() {
+    /** Ends the current session: new PIN, phones must join again, messages and received files cleared. */
+    public void newSession() throws IOException {
         pins.renew();
         int phones = devices.removeType(PhoneClient.class);
-        inbox.newSession();
-        log.add("new session: PIN " + pins.pin() + ", " + phones + " phone(s) disconnected");
+        int files = inbox.newSession();
+        log.add("new session: PIN " + pins.pin() + ", " + phones + " phone(s) disconnected, " + files + " file(s) removed");
     }
 
     public String clipboard() {

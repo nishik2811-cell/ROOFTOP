@@ -92,7 +92,7 @@ async function call(path, options) {
 /* City                                                                  */
 /* ===================================================================== */
 
-function createCity(canvas, { imageUrl, onSelect, onHover = () => {} }) {
+function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = () => {} }) {
   const ctx = canvas.getContext('2d');
   const U = 22;
   const COS = Math.cos(Math.PI / 6);
@@ -181,7 +181,8 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {} }) {
   const horizon = corners[0][1] - 60;
   const W = view.x1 - view.x0, H = view.y1 - view.y0;
 
-  const silhouette = (b) => [iso(b.x0, b.h, b.z0), iso(b.x1, b.h, b.z0), iso(b.x1, b.h, b.z1), iso(b.x1, 0, b.z1), iso(b.x0, 0, b.z1), iso(b.x0, b.h, b.z1)];
+  // outline of a box on screen: back top, right top, right bottom, front bottom, left bottom, left top
+  const silhouette = (b) => [iso(b.x0, b.h, b.z0), iso(b.x1, b.h, b.z0), iso(b.x1, 0, b.z0), iso(b.x1, 0, b.z1), iso(b.x0, 0, b.z1), iso(b.x0, b.h, b.z1)];
   const endFace = (b) => [iso(b.x1, b.h, b.z1), iso(b.x1, b.h, b.z0), iso(b.x1, 0, b.z0), iso(b.x1, 0, b.z1)];
   const centerOf = (poly) => [poly.reduce((a, p) => a + p[0], 0) / poly.length, poly.reduce((a, p) => a + p[1], 0) / poly.length];
   for (const b of buildings) {
@@ -746,6 +747,11 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {} }) {
         ctx.globalAlpha = 1;
       }
     }
+    // tell the page where each file's top-right corner is on screen, for its remove button
+    onFrame(murals.map((m) => {
+      const p = m.poly.reduce((best, q) => (q[0] - q[1] > best[0] - best[1] ? q : best));
+      return { x: (p[0] - cam.x) * cam.z, y: (p[1] - cam.y) * cam.z };
+    }));
     // the city is alive, so keep drawing (the loop pauses while the tab is hidden)
     if (reduceMotion && !tween && !flight && !splash) return;
     requestDraw();
@@ -1012,7 +1018,52 @@ let lastOnline = true;
 let lastTextAt = null;     // newest message time we have already shown
 let seenTexts = new Set(); // for highlighting new rows in the PC's message list
 
-const city = createCity($('#city'), { imageUrl: fileUrl, onSelect: (i) => select(i), onHover: (i, x, y) => hover(i, x, y) });
+const city = createCity($('#city'), { imageUrl: fileUrl, onSelect: (i) => select(i), onHover: (i, x, y) => hover(i, x, y), onFrame: placeRemoveButtons });
+
+/* ---- removing files: an × on each file in the city and in the inbox. Two clicks, so a slip does not delete. ---- */
+async function removeFile(name, btn) {
+  if (!btn.classList.contains('armed')) {
+    document.querySelectorAll('.remove.armed').forEach((b) => b.classList.remove('armed'));
+    btn.classList.add('armed');
+    btn.setAttribute('aria-label', `Click again to remove ${name}`);
+    setTimeout(() => btn.classList.remove('armed'), 3000);
+    return;
+  }
+  try {
+    await call('/api/remove?name=' + encodeURIComponent(name), { method: 'POST' });
+    toast(`Removed ${name}`);
+    closeStory();
+    await refresh();
+  } catch (e) {
+    if (!(e instanceof PinError)) toast('Could not remove that file');
+  }
+}
+
+function removeButton(name) {
+  const b = el('button', { type: 'button', className: 'remove' }, icon('i-x'));
+  b.setAttribute('aria-label', `Remove ${name}`);
+  b.addEventListener('click', (e) => { e.stopPropagation(); removeFile(name, b); });
+  return b;
+}
+
+const pinLayer = $('#removeLayer');
+const pinButtons = new Map(); // file name -> button over the city
+function placeRemoveButtons(points) {
+  const murals = city.murals();
+  const w = pinLayer.clientWidth, h = pinLayer.clientHeight;
+  const seen = new Set();
+  murals.forEach((m, i) => {
+    if (!m.file.removable) return;
+    const name = m.file.name;
+    seen.add(name);
+    let b = pinButtons.get(name);
+    if (!b) { b = removeButton(name); pinButtons.set(name, b); pinLayer.append(b); }
+    const { x, y } = points[i];
+    b.hidden = x < 8 || y < 8 || x > w - 8 || y > h - 8;
+    b.style.transform = `translate(${Math.round(x - 11)}px, ${Math.round(y - 11)}px)`;
+  });
+  for (const [name, b] of pinButtons) if (!seen.has(name)) { b.remove(); pinButtons.delete(name); }
+}
 
 /* ---- toast ---- */
 let toastTimer = 0;
@@ -1314,7 +1365,7 @@ function renderSheets() {
       el('div', { className: 'meta', textContent: `${route(f)}, ${humanSize(f.size)}, ${timeAgo(f.at)}` }));
     const dl = el('a', { className: 'dl', href: saveUrl(f.name), download: f.name }, icon('i-down'));
     dl.setAttribute('aria-label', `Save ${f.name}`);
-    return el('li', {}, badge, info, dl);
+    return el('li', {}, badge, info, dl, ...(f.removable ? [removeButton(f.name)] : []));
   }));
   $('#fileEmpty').hidden = state.files.length > 0;
 

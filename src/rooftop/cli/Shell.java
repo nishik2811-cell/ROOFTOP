@@ -132,7 +132,7 @@ public class Shell {
         app.printBanner();
     }
 
-    @Command(help = "end this session: new PIN, phones disconnected, messages cleared")
+    @Command(help = "end this session: new PIN, phones disconnected, messages and files cleared")
     void session(String rest) throws IOException {
         app.newSession();
         app.printBanner();

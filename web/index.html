@@ -40,6 +40,7 @@
 <main class="frame">
   <section class="stage" id="stage" aria-label="City view. Every received file is painted on a wall.">
     <canvas id="city" aria-hidden="true"></canvas>
+    <div class="remove-layer" id="removeLayer"></div>
     <div class="loader" id="loader" aria-hidden="true"><span class="crosshair"></span></div>
     <div class="peek" id="peek" hidden><span class="peek-thumb" id="peekThumb"></span><span class="peek-text"><b id="peekName"></b><small id="peekMeta"></small></span></div>
     <aside class="story" id="story" aria-label="Selected file" hidden>
@@ -103,7 +104,7 @@
         <p>Expected the first time. Android: Advanced, then Proceed. iPhone: Show Details, then visit this website. The link is still encrypted; no company signed this PC's certificate, that is all.</p>
       </details>
       <button class="session-btn" type="button" id="newSession">End session, start new</button>
-      <p class="session-note" id="sessionNote">New PIN and QR code. Phones are disconnected, messages are cleared. Received files stay on this PC.</p>
+      <p class="session-note" id="sessionNote">New PIN and QR code. Phones are disconnected, and messages and received files are deleted.</p>
     </section>
 
     <section class="host-card">

@@ -144,6 +144,17 @@ public class WebServer {
                 res.send(200, TEXT, "ok");
             }
             case "/clip" -> res.send(200, TEXT, app.clipboard());
+            case "/remove" -> {
+                String name = req.query.get("name");
+                boolean allowed = post && name != null && app.inbox().newestFirst().stream()
+                        .anyMatch(i -> i.name().equals(name) && i.visibleTo(visitorId) && canRemove(i, visitorId, local));
+                if (!allowed) res.send(404, TEXT, "not found");
+                else {
+                    app.inbox().remove(name);
+                    app.log().add(visitor + " removed " + name);
+                    res.send(200, TEXT, "ok");
+                }
+            }
             case "/session" -> { // only the host itself may end the session
                 if (!local) res.send(404, TEXT, "not found");
                 else if (!post) res.send(405, TEXT, "POST only");
@@ -178,6 +189,11 @@ public class WebServer {
         return app.devices().find(to).isPresent() ? to : ReceivedItem.EVERYONE;
     }
 
+    /** The host may remove any file; a phone only the files it sent. */
+    private static boolean canRemove(ReceivedItem item, String visitorId, boolean local) {
+        return local || item.fromId().equals(visitorId);
+    }
+
     private String recipientName(String to) {
         if (ReceivedItem.EVERYONE.equals(to)) return "everyone";
         if (app.me().id().equals(to)) return app.me().name();
@@ -196,7 +212,8 @@ public class WebServer {
         for (ReceivedItem i : app.inbox().newestFirst()) {
             if (!i.visibleTo(visitorId)) continue; // a file sent to one device stays private to it (and its sender)
             files.add("{\"name\":" + Texts.json(i.name()) + ",\"size\":" + i.size() + ",\"from\":" + Texts.json(i.from())
-                    + ",\"to\":" + Texts.json(recipientName(i.to())) + ",\"at\":" + i.at() + "}");
+                    + ",\"to\":" + Texts.json(recipientName(i.to())) + ",\"at\":" + i.at()
+                    + ",\"removable\":" + canRemove(i, visitorId, local) + "}");
         }
 
         StringJoiner texts = new StringJoiner(",", "[", "]");
