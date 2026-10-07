@@ -1,6 +1,5 @@
 package rooftop.ui;
 
-import java.applet.Applet;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
@@ -9,6 +8,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
 import java.awt.Image;
+import java.awt.Panel;
 import java.awt.RenderingHints;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -18,11 +18,9 @@ import rooftop.model.PcPeer;
 import rooftop.util.Registry;
 
 /**
- * A live radar of nearby devices, built as an applet (init, start, paint, stop, destroy).
- * Browsers dropped applets years ago, so it is hosted in an AWT Frame instead of a web page.
+ * A live radar of nearby devices, hosted in an AWT Frame.
  */
-@SuppressWarnings("removal") // java.applet is deprecated for removal but still ships in JDK 25
-public class RadarApplet extends Applet implements Runnable {
+public class RadarApplet extends Panel implements Runnable {
     private static final Color PAPER = new Color(0xd4cbbe);
     private static final Color INK = new Color(0x171615);
     private static final Color SKY = new Color(0x1f5fb3);
@@ -40,25 +38,21 @@ public class RadarApplet extends Applet implements Runnable {
         this.self = self;
     }
 
-    @Override
     public void init() {
         setBackground(PAPER);
         setFont(new Font(Font.MONOSPACED, Font.BOLD, 12));
     }
 
-    @Override
     public void start() {
         animator = new Thread(this, "radar");
         animator.setDaemon(true);
         animator.start();
     }
 
-    @Override
     public void stop() {
         animator = null; // run() sees this and returns
     }
 
-    @Override
     public void destroy() {
         buffer = null;
     }
