@@ -1526,3 +1526,62 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
   body:not(.is-host) .stage { flex: 1 1 auto; height: auto; min-height: 0; }
   body:not(.is-host) .credits { flex: none; }
 }
+
+/* the opening screen's slide-to-enter pill */
+.intro-slider {
+  width: min(310px, 82vw);
+  height: 52px;
+  padding: 0;
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.slide-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 52px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(242, 182, 50, 0.15), rgba(242, 182, 50, 0.55));
+  transition: width 0.35s var(--ease);
+}
+.slide-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding-left: 40px;
+  font: 600 11px var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: calc(1 - var(--p, 0) * 1.6);
+  background: linear-gradient(90deg, var(--chalk) 40%, #fff 50%, var(--chalk) 60%) 0 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: slide-shine 2.6s linear infinite;
+}
+.slide-knob {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+  z-index: 2;
+  transition: transform 0.35s var(--ease);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.slide-knob .i { width: 20px; height: 20px; }
+.intro-slider.dragging .slide-knob, .intro-slider.dragging .slide-fill { transition: none; }
+.intro-slider.dragging .slide-knob { cursor: grabbing; }
+.intro-slider.nudge .slide-knob { animation: slide-nudge 0.7s var(--ease); }
+.intro-slider.done .slide-knob { background: var(--accent); }
+.intro-enter.intro-slider:active { transform: translateX(-50%); }
+@keyframes slide-shine { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+@keyframes slide-nudge { 0%, 100% { transform: translateX(0); } 35% { transform: translateX(46px); } 65% { transform: translateX(12px); } }
+@media (prefers-reduced-motion: reduce) { .slide-text { animation: none; } }

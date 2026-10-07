@@ -42,7 +42,7 @@ const pcName = (await (await fetch('http://localhost:8080/api/state')).json()).m
 
 // 1. a new phone: intro, then the name screen
 const P1 = await page(lan, 'P1', { intro: true });
-await P1.click('#introEnter', { timeout: 15000 });
+await P1.locator('#introEnter').press('Enter', { timeout: 15000 }); // the knob is a slider; the keyboard enters at once
 await gate(P1).waitFor({ state: 'visible', timeout: 10000 });
 const focused = await P1.evaluate(() => document.activeElement?.id);
 const fontSize = await P1.$eval('#nameGateInput', (i) => getComputedStyle(i).fontSize);
@@ -101,7 +101,7 @@ await P2.keyboard.press('Escape');
 
 // 4. reloads do not ask again
 await P1.reload();
-await P1.click('#introEnter', { timeout: 15000 });
+await P1.locator('#introEnter').press('Enter', { timeout: 15000 }); // the knob is a slider; the keyboard enters at once
 await P1.waitForTimeout(3000);
 check(!(await gate(P1).isVisible()), 'after a reload the phone is not asked again');
 await A.reload();

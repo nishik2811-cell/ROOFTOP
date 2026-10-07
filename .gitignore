@@ -10,3 +10,4 @@ android/build/
 .impeccable/
 .rooftop/
 .DS_Store
+test/layout-shots/

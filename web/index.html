@@ -32,7 +32,11 @@
     <span class="intro-left"><span style="--i:0">Send</span><span style="--i:1">to</span></span>
     <span class="intro-right"><span class="intro-corner">[offline, same Wi-Fi]</span><span style="--i:2">Rooftop</span></span>
   </p>
-  <button class="pill pill-primary intro-enter" type="button" id="introEnter"><span class="disc"><svg class="i"><use href="#i-right"/></svg></span>Enter the city</button>
+  <div class="pill pill-primary intro-enter intro-slider" id="introSlider">
+    <span class="slide-fill" id="slideFill" aria-hidden="true"></span>
+    <span class="slide-text" aria-hidden="true">Slide to enter the city</span>
+    <button class="disc slide-knob" type="button" id="introEnter" aria-label="Enter the city: slide right, or press Enter"><svg class="i"><use href="#i-right"/></svg></button>
+  </div>
   <p class="intro-line"><b>AllDrop</b>: AirDrop for all your devices.<span class="intro-extra"><br>No cables. No cloud. No app.</span><br><span class="intro-e2e"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg> End-to-end encrypted.</span></p>
   <p class="intro-credits">Made by Nishita, Aryan and Keshav</p>
 </div>

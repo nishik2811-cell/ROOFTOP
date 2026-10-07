@@ -1797,8 +1797,15 @@ async function ensureKeys() {
 async function registerKey() {
   if (!keysBusy) keysBusy = ensureKeys().catch(() => { myPair = null; }).finally(() => { keysBusy = null; });
   await keysBusy;
-  if (myKey && state.youKey !== myKey) await call('/api/key', { method: 'POST', body: myKey }).catch(() => {});
+  if (!myKey || state.youKey === myKey) return;
+  // The PC's page is the one device that can be open in two browsers at once (both are "this PC"). Each registers
+  // once per session, or again if the PC forgot its key, so the one opened last owns it instead of the two swapping
+  // it on every poll. Phones each have their own device id, so they simply re-register.
+  if (isLocal && state.youKey && hostRegistered === keySession + myKey) return;
+  hostRegistered = keySession + myKey;
+  await call('/api/key', { method: 'POST', body: myKey }).catch(() => {});
 }
+let hostRegistered = '';
 
 const safetyCodeFor = (theirKey) => E2E.safetyCode(myRaw, E2E.unb64(theirKey));
 
@@ -2914,7 +2921,7 @@ function runIntro() {
   setTimeout(() => intro.classList.add('s1'), 120);
   const t2 = setTimeout(() => { intro.classList.add('s2'); document.body.classList.add('intro-s2'); }, 2400);
   const t3 = setTimeout(() => { intro.classList.add('s3'); document.body.classList.add('intro-s3'); }, 4000);
-  $('#introEnter').addEventListener('click', () => {
+  slideToEnter(() => {
     clearTimeout(t2); clearTimeout(t3);
     intro.classList.add('leaving');
     $('#loader').classList.remove('done');
@@ -2927,7 +2934,41 @@ function runIntro() {
       city.arrive();
       maybeAskName();
     }, 1400);
-  }, { once: true });
+  });
+}
+
+/* Slide to enter: drag the knob to the end of the pill. Let go early and it springs back; a plain tap gives a nudge
+   to show it slides. Keyboard (Enter or Space on the knob) still enters, for people who cannot drag. */
+function slideToEnter(enter) {
+  const track = $('#introSlider'), knob = $('#introEnter'), fill = $('#slideFill');
+  let startX = 0, x = 0, max = 0, dragging = false, done = false;
+  const place = (to) => {
+    x = to;
+    knob.style.transform = `translateX(${to}px)`;
+    fill.style.width = `${to + knob.offsetWidth + 4}px`;
+    track.style.setProperty('--p', max ? to / max : 0);
+  };
+  const finish = () => { if (done) return; done = true; track.classList.add('done'); place(max || track.clientWidth - knob.offsetWidth - 8); enter(); };
+  knob.addEventListener('pointerdown', (e) => {
+    if (done) return;
+    dragging = true;
+    max = track.clientWidth - knob.offsetWidth - 8;
+    startX = e.clientX - x;
+    knob.setPointerCapture(e.pointerId);
+    track.classList.add('dragging');
+  });
+  knob.addEventListener('pointermove', (e) => { if (dragging) place(Math.max(0, Math.min(max, e.clientX - startX))); });
+  const release = () => {
+    if (!dragging) return;
+    dragging = false;
+    track.classList.remove('dragging');
+    if (x >= max * 0.85) finish();
+    else if (x < 4) { track.classList.remove('nudge'); void track.offsetWidth; track.classList.add('nudge'); place(0); }
+    else place(0); // springs back (CSS transition)
+  };
+  knob.addEventListener('pointerup', release);
+  knob.addEventListener('pointercancel', release);
+  knob.addEventListener('click', (e) => { if (e.detail === 0) finish(); }); // keyboard activation has no pointer
 }
 runIntro();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
