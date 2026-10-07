@@ -604,12 +604,25 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
 
   function setFiles(next) {
     files = next;
+    // Files keep their spot between updates, so removing one never shuffles the rest.
+    // A new file takes a free billboard, or bumps an older billboard file onto a wall, or gets a wall.
+    const was = new Map([...assigned].map(([place, f]) => [f.name, place]));
     assigned = new Map();
-    const newest = files.slice(0, boards.length);
-    newest.forEach((f, i) => assigned.set(boards[i], f));
-    for (const f of files.slice(boards.length).sort((a, b) => a.at - b.at)) {
-      const wall = wallFor(f.name, assigned);
-      if (wall) assigned.set(wall, f);
+    const fresh = [];
+    for (const f of files) {
+      const place = was.get(f.name);
+      if (place) assigned.set(place, f); else fresh.push(f);
+    }
+    const toWall = (f) => { const wall = wallFor(f.name, assigned); if (wall) assigned.set(wall, f); };
+    for (const f of fresh.sort((a, b) => b.at - a.at)) {
+      const free = boards.find((bd) => !assigned.has(bd));
+      if (free) { assigned.set(free, f); continue; }
+      const oldest = boards.reduce((o, bd) => (!o || assigned.get(bd).at < assigned.get(o).at ? bd : o), null);
+      if (oldest && assigned.get(oldest).at < f.at) {
+        const bumped = assigned.get(oldest);
+        assigned.set(oldest, f);
+        toWall(bumped);
+      } else toWall(f);
     }
     const spot = new Map([...assigned].map(([place, f]) => [f.name, place]));
     murals = files.filter((f) => spot.has(f.name)).map((f) => {
@@ -1041,7 +1054,7 @@ async function removeFile(name) {
   try {
     await call('/api/remove?name=' + encodeURIComponent(name), { method: 'POST' });
     toast(`Removed ${name}`);
-    closeStory();
+    if (!$('#story').hidden && city.murals()[selected]?.file.name === name) closeStory(false); // camera stays put
     await refresh();
   } catch (e) {
     if (!(e instanceof PinError)) toast('Could not remove that file');
@@ -1229,14 +1242,14 @@ function openStory(index) {
   requestAnimationFrame(() => story.classList.add('open'));
 }
 
-function closeStory() {
+function closeStory(zoomOut = true) {
   const story = $('#story');
   story.classList.remove('open');
   setTimeout(() => { if (!story.classList.contains('open')) story.hidden = true; }, 450);
-  city.overview();
+  if (zoomOut) city.overview();
 }
 
-$('#storyClose').addEventListener('click', closeStory);
+$('#storyClose').addEventListener('click', () => closeStory());
 $('#storyPrev').addEventListener('click', () => select(selected - 1));
 $('#storyNext').addEventListener('click', () => select(selected + 1));
 document.addEventListener('keydown', (e) => {
