@@ -65,7 +65,7 @@ public class Rooftop {
             System.out.println("          other network? try " + web.phoneUrl(other));
         System.out.println("  This PC: open http://localhost:" + Wire.LOCAL_PORT + " for a big QR code and the city.");
         System.out.println("  PIN " + pins.pin() + "   files land in " + inbox.dir());
-        System.out.println("  Type 'help' for commands.");
+        System.out.println("  Type 'help' for commands (or 'web' to open browser, 'folder' to open inbox).");
     }
 
     /** A chat message. It lands on this PC's clipboard only if this PC is one of the people it is for. */

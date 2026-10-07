@@ -23,6 +23,8 @@
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M8 9h8"/><path d="M8 13h6"/><path d="M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5l-5 3v-3h-2a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3h12z"/></symbol>
   <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24"><path d="M15 8a5 5 0 0 1 0 8"/><path d="M17.7 5a9 9 0 0 1 0 14"/><path d="M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5L6 15z"/></symbol>
+  <symbol id="i-volume-off" viewBox="0 0 24 24"><path d="M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5L6 15z"/><path d="M16 9l6 6"/><path d="M22 9l-6 6"/></symbol>
 </svg>
 
 <div class="intro" id="intro" hidden>
@@ -129,6 +131,7 @@
         <svg class="i to-caret" aria-hidden="true"><use href="#i-right"/></svg>
       </label>
       <button class="round" type="button" id="sendToChat" aria-label="Chat with this person" hidden><svg class="i"><use href="#i-chat"/></svg></button>
+      <button class="round" type="button" id="soundBtn" aria-label="Mute sounds" title="Toggle sound effects" aria-pressed="false"><svg class="i"><use href="#i-volume"/></svg></button>
       <button class="round" type="button" id="themeBtn" aria-label="Switch day and night" aria-pressed="false"><svg class="i"><use href="#i-sun"/></svg></button>
     </div>
   </section>
@@ -137,9 +140,9 @@
   <aside class="host" id="host" aria-label="This PC" hidden>
     <section class="host-card connect-card">
       <h2>Scan to connect</h2>
-      <div class="qr-wrap"><canvas id="hostQr" width="480" height="480" aria-label="QR code that opens Rooftop on a phone"></canvas></div>
+      <div class="qr-wrap" id="hostQrWrap" title="Click to enlarge QR code"><canvas id="hostQr" width="480" height="480" aria-label="QR code that opens Rooftop on a phone"></canvas></div>
       <p class="host-url"><span id="hostUrl">Starting</span><button class="icon-btn" type="button" id="copyUrl" aria-label="Copy link"><svg class="i"><use href="#i-copy"/></svg></button></p>
-      <p class="host-pin">PIN <strong id="hostPin">------</strong></p>
+      <p class="host-pin">PIN <strong id="hostPin" title="Click to copy PIN">------</strong><button class="icon-btn" type="button" id="copyPin" aria-label="Copy PIN"><svg class="i"><use href="#i-copy"/></svg></button></p>
       <form class="name-form" id="hostNameForm">
         <label for="hostName">This PC is called</label>
         <span class="name-row"><input id="hostName" maxlength="32" autocomplete="off" spellcheck="false"><button class="btn" type="submit">Save</button></span>
@@ -199,6 +202,10 @@
       <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
     </header>
     <div id="panelFiles" role="tabpanel" aria-labelledby="tabFiles">
+      <div class="inbox-toolbar" id="inboxToolbar" hidden>
+        <input type="search" id="fileFilter" class="filter-input" placeholder="Search files…" aria-label="Search files" autocomplete="off" spellcheck="false">
+        <button class="btn btn-small" type="button" id="downloadAll">Download all</button>
+      </div>
       <ul class="files" id="fileList"></ul>
       <p class="empty" id="fileEmpty">Nothing here yet. Files sent to this PC, from any phone or PC, land here and get painted on a wall.</p>
     </div>
@@ -294,10 +301,32 @@
   </div>
 </dialog>
 
+<dialog class="sheet sheet-qr" id="sheet-qr" aria-labelledby="qr-title">
+  <div class="sheet-inner qr-modal-inner">
+    <header class="sheet-head">
+      <h2 id="qr-title">Scan to connect</h2>
+      <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="qr-large-wrap">
+      <canvas id="hostQrLarge" width="560" height="560" aria-label="Large QR code that opens Rooftop on a phone"></canvas>
+    </div>
+    <p class="qr-modal-pin">PIN <strong id="hostPinLarge">------</strong></p>
+    <p class="qr-modal-url" id="hostUrlLarge"></p>
+  </div>
+</dialog>
+
 <div class="scan" id="scanBox" hidden>
   <video id="scanVideo" playsinline muted></video>
   <p>Point the camera at the other device's key code</p>
   <button class="btn btn-primary" type="button" id="scanStop">Cancel</button>
+</div>
+
+<div class="drop-overlay" id="dropOverlay" hidden>
+  <div class="drop-card">
+    <div class="drop-icon"><svg class="i"><use href="#i-up"/></svg></div>
+    <h3 class="drop-title">Drop files to send</h3>
+    <p class="drop-sub" id="dropSub">Sending to Everyone</p>
+  </div>
 </div>
 
 <div class="ring" id="ring" aria-hidden="true" hidden></div>
