@@ -1489,3 +1489,8 @@ body.is-host .host-more .host-messages li { text-align: left; }
 body.is-host .host-more .key-list { justify-self: stretch; }
 .intro-e2e { display: inline-flex; align-items: center; gap: 6px; }
 .intro-e2e .i { width: 0.9em; height: 0.9em; }
+
+/* buttons sit apart: no pill tucked under its neighbour */
+.bar { gap: 8px; }
+.joined { gap: 8px; }
+.joined > * + * { margin-left: 0; box-shadow: none; }
