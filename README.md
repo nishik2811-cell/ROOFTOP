@@ -11,9 +11,9 @@ Made by **Nishita, Aryan and Keshav**.
 - Works on **Windows, macOS, Linux** (Java host), **Android** (host app or browser) and **iPhone** (browser).
 - Phones join by scanning a QR code, with no app needed.
 - Send files and text to **everyone** or to **one chosen device**.
-- **Every file end-to-end encrypted:** whether it goes to one device or to everyone, a file is sealed in the sender's browser for each recipient's key, and only those browsers can open it (the PC's own page included). The PC in the middle stores only ciphertext and deletes it once every recipient has saved its copy.
+- **Every file end-to-end encrypted:** whether it goes to one device or to everyone, a file is sealed in the sender's browser for each recipient's key, and only those browsers can open it (the PC's own page included). The PC in the middle stores only ciphertext and deletes it once every recipient has saved its copy. Files for the PC itself wait, like an unread message, until the PC's page opens them, even across restarts.
 - **Keys you can check:** each device shows a 6-digit safety code per device, and a QR code the other can scan with its camera to mark the key verified. The Send to list says which devices are verified.
-- PC-to-PC transfers are encrypted (ECDH + AES-256-GCM) and tied to the receiving PC's PIN, so a wrong PIN or someone in the middle fails before any data moves.
+- PC-to-PC transfers are encrypted (SPAKE2 key exchange over P-256 + AES-256-GCM) and tied to the receiving PC's PIN, so a wrong PIN or someone in the middle fails before any data moves. Both terminals show a safety code.
 - **Reliable transfers:** big files go in pieces, so a dropped Wi-Fi resumes instead of starting over; failed sends retry automatically; PC-to-PC files are checked with SHA-256.
 - **Smarter sending:** pick as many files as you like, any time. Three move at once, small ones go first (a big file never waits more than 20 s behind them), and each can be cancelled or retried. A tray shows live speed, time left and a speed graph.
 - **Compression only when it helps:** text-like files are packed on the way (in the browser, or between PCs) if a sample actually shrinks; photos, videos and archives are sent as they are.
@@ -23,7 +23,8 @@ Made by **Nishita, Aryan and Keshav**.
 - **Notifications** when a file or message arrives while Rooftop is in the background (and a count in the tab title).
 - A 6-digit PIN protects every session. **End session, start new** (PC panel) gives a fresh PIN, disconnects all phones and deletes received files and messages.
 - Remove any file with the **×** on it (in the city or the inbox). Phones can only remove files they sent.
-- Received files appear on billboards and walls of a small explorable city, with a day and night mode.
+- Received files appear on billboards and walls of a small explorable city, with a day and night mode. Slide to enter it from the opening screen.
+- **Instant updates:** each page keeps one request open that the PC answers the moment a file or message arrives, instead of waiting for the next poll.
 
 ## Quick start
 
@@ -87,9 +88,9 @@ src/rooftop/
 ├── DesktopPlatform.java desktop version (AWT clipboard, ~/Rooftop folder)
 ├── SelfTest.java        checks for the risky parts
 ├── Benchmark.java       transfer speed test
-├── model/      Device hierarchy, payloads, Transfer, Progress, Inbox
+├── model/      Device hierarchy, payloads, Transfer, Progress, Inbox, SealedBox (end-to-end files), ChatBox, History
 ├── net/        Discovery (UDP), TransferServer/Client (TCP), SendQueue, Frames, Http, WebServer
-├── security/   SecureChannel (ECDH + SPAKE2 + AES-GCM), Spake2, Certificates, PinGuard, FileNames
+├── security/   SecureChannel (SPAKE2 + AES-GCM), Spake2, Certificates, PinGuard, FileNames
 ├── error/      custom exceptions
 ├── util/       Registry, Texts, ActivityLog, Streams, Threads, QrCode
 ├── cli/        Shell and the @Command annotation
@@ -100,7 +101,8 @@ Other folders:
 
 | Folder | Contents |
 |---|---|
-| `web/` | The page (HTML, CSS, JS, font). No frameworks. |
+| `web/` | The page (HTML, CSS, JS, font) and `e2e.js`, the browser's end-to-end encryption. No frameworks. |
+| `test/` | Browser checks (end to end, chat, names, layout, speed); `SelfTest.java` covers the Java side |
 | `android/` | Android host app: `AndroidPlatform`, `MainActivity`, `RooftopService`, `build.sh` |
 
 ## Security
