@@ -43,6 +43,9 @@ async function page(url, name, noCrypto = false) {
   const p = await ctx.newPage();
   p.on('pageerror', (e) => errors.push(`${name || 'A'}: ${e.message}`));
   await p.goto(url);
+  if (!name) { // this PC's page asks for the PC's name the first time; leave the name as it is
+    await p.locator('#nameGate').waitFor({ state: 'visible', timeout: 4000 }).then(() => p.click('#nameGateSkip')).catch(() => {});
+  }
   return p;
 }
 const A = await page('http://localhost:8080/', '');

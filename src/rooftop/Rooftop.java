@@ -85,6 +85,11 @@ public class Rooftop {
         return true;
     }
 
+    /** True once someone picked a name for this PC (here or in the terminal), so the page stops asking. */
+    public boolean named() {
+        return java.nio.file.Files.isRegularFile(nameFile());
+    }
+
     private java.nio.file.Path nameFile() {
         return inbox.dir().resolve(".rooftop").resolve("name");
     }

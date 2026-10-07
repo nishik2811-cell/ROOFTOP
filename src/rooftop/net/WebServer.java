@@ -398,7 +398,8 @@ public class WebServer {
         StringJoiner texts = new StringJoiner(",", "[", "]");
         for (ReceivedText t : app.inbox().texts()) {
             if (!local && !t.visibleTo(visitorId)) continue; // the PC's own screen sees every message that passed through it
-            texts.add("{\"text\":" + Texts.json(t.text()) + ",\"from\":" + Texts.json(t.from()) + ",\"to\":" + Texts.json(recipientName(t.to()))
+            texts.add("{\"text\":" + Texts.json(t.text()) + ",\"from\":" + Texts.json(t.from()) + ",\"fromId\":" + Texts.json(t.fromId())
+                    + ",\"to\":" + Texts.json(recipientName(t.to()))
                     + ",\"private\":" + !ReceivedItem.EVERYONE.equals(t.to()) + ",\"mine\":" + t.fromId().equals(visitorId)
                     + ",\"forMe\":" + (t.to().equals(visitorId) || ReceivedItem.EVERYONE.equals(t.to())) + ",\"at\":" + t.at() + "}");
         }
@@ -408,7 +409,7 @@ public class WebServer {
                 + ",\"youId\":" + Texts.json(visitorId) + ",\"local\":" + local
                 + ",\"devices\":" + devices + ",\"files\":" + files + ",\"texts\":" + texts + ",\"sealed\":" + sealed
                 + ",\"historyAt\":" + (history.isEmpty() ? 0 : history.get(0).at())
-                + ",\"session\":" + Texts.json(app.session())
+                + ",\"session\":" + Texts.json(app.session()) + ",\"meNamed\":" + app.named()
                 + ",\"meKey\":" + Texts.json(canReceiveSealed(app.me().id()) ? app.me().publicKey() : "")
                 + ",\"youKey\":" + Texts.json(local ? app.me().publicKey() : app.devices().find(visitorId).map(Device::publicKey).orElse("")) + "}";
     }
@@ -418,6 +419,7 @@ public class WebServer {
         for (History.Entry e : app.history().newestFirst()) {
             if (!local && !e.visibleTo(visitorId)) continue;
             out.add("{\"at\":" + e.at() + ",\"name\":" + Texts.json(e.name()) + ",\"size\":" + e.size() + ",\"from\":" + Texts.json(e.from())
+                    + ",\"fromId\":" + Texts.json(e.fromId())
                     + ",\"to\":" + Texts.json(e.toName()) + ",\"ok\":" + e.ok() + ",\"ms\":" + e.millis()
                     + ",\"ratio\":" + String.format(Locale.ROOT, "%.3f", e.ratio()) + ",\"note\":" + Texts.json(e.note())
                     + ",\"mine\":" + e.fromId().equals(visitorId) + "}");

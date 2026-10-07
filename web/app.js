@@ -1251,6 +1251,7 @@ async function refresh() {
     announceText(next.texts);
     renderSheets();
     syncName();
+    maybeAskName();
     registerKey();
     offerSealed(next.sealed || []);
   } catch (e) {
@@ -2146,7 +2147,7 @@ function renderHost() {
     const copy = el('button', { className: 'icon-btn', type: 'button' }, icon('i-copy'));
     copy.setAttribute('aria-label', 'Copy message');
     copy.addEventListener('click', () => copyText(t.text));
-    const li = el('li', {}, el('span', { className: 'msg', textContent: t.text }),
+    const li = el('li', {}, avatar({ id: t.fromId, name: t.from }), el('span', { className: 'msg', textContent: t.text }),
       el('span', { className: 'meta', textContent: `${t.mine ? 'You' : t.from}${t.private ? ' → ' + t.to : ''}, ${timeAgo(t.at)}` }), copy);
     if (!first && !seenTexts.has(key)) li.classList.add('fresh');
     return li;
@@ -2267,14 +2268,17 @@ function renderChat() {
   const key = texts.map((t) => t.at + t.from).join('|') + state.you;
   if (key !== chatKey) {
     chatKey = key;
-    $('#textList').replaceChildren(...texts.map((t) => {
+    $('#textList').replaceChildren(...texts.map((t, i) => {
       const copy = el('button', { className: 'icon-btn', type: 'button' }, icon('i-copy'));
       copy.setAttribute('aria-label', 'Copy message');
       copy.addEventListener('click', () => copyText(t.text));
-      const who = t.mine ? (t.private ? `You → ${t.to}` : 'You') : t.private ? `${t.from} → you` : t.from;
-      return el('li', { className: 'msg' + (t.mine ? ' mine' : '') + (t.private ? ' private' : '') },
-        el('div', { className: 'bubble', textContent: t.text }),
-        el('div', { className: 'msg-meta' }, el('span', { textContent: `${who} · ${timeAgo(t.at)}` }), copy));
+      const first = i === 0 || texts[i - 1].fromId !== t.fromId; // the name goes above the first message of each run
+      const where = t.private ? (t.mine ? ` → ${t.to}` : ' → you') : '';
+      const body = el('div', { className: 'msg-body' });
+      if (first) body.append(el('div', { className: 'msg-who', textContent: (t.mine ? 'You' : t.from) + where }));
+      body.append(el('div', { className: 'bubble', textContent: t.text }), el('div', { className: 'msg-meta' }, el('span', { textContent: timeAgo(t.at) }), copy));
+      const face = first ? avatar({ id: t.fromId, name: t.from }) : el('span', { className: 'avatar-gap' });
+      return el('li', { className: 'msg' + (t.mine ? ' mine' : '') + (t.private ? ' private' : '') + (first ? ' first' : '') }, face, body);
     }));
     if ($('#sheet-notes').open && chatStick) requestAnimationFrame(() => { const l = $('#sheet-notes .sheet-inner'); l.scrollTop = l.scrollHeight; });
   }
@@ -2299,15 +2303,90 @@ document.querySelector('[data-sheet="notes"]').addEventListener('click', () => {
   requestAnimationFrame(() => { const l = $('#sheet-notes .sheet-inner'); l.scrollTop = l.scrollHeight; });
 });
 
+/* ---- the name screen: asked once, right after "Enter the city" ---- */
+const DEFAULT_NAME = /^(iPhone|iPad|Android|Windows browser|Mac browser|Linux browser|Browser) \.\d+$/;
+function deviceWord() {
+  const ua = navigator.userAgent;
+  return /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'phone' : /Mac OS/.test(ua) ? 'Mac' : 'laptop';
+}
+function needsName() {
+  if (session.get('rooftop-name-skipped')) return false;
+  if (state.local) return !state.meNamed;
+  const saved = local.get('rooftop-name');
+  return !saved || DEFAULT_NAME.test(saved);
+}
+/** The connected device already using this name (any case), if there is one. */
+function takenBy(name) {
+  const wanted = name.trim().toLowerCase();
+  const others = state.devices.filter((d) => d.id !== state.youId).map((d) => d.name).concat(state.local ? [] : [state.me]);
+  return others.find((n) => n.toLowerCase() === wanted);
+}
+function freeName(name) {
+  for (let i = 2; ; i++) if (!takenBy(`${name} ${i}`)) return `${name} ${i}`;
+}
+
+let nameAsked = false;
+function maybeAskName() {
+  if (nameAsked || !state.session || !needsName() || document.body.classList.contains('intro-on') || $('#sheet-pin').open) return;
+  nameAsked = true;
+  const host = state.local;
+  $('#nameGateKicker').textContent = host ? 'This PC' : 'Before you go up';
+  $('#nameGateTitle').textContent = host ? 'What should others call this PC?' : 'What should others call you?';
+  $('#nameGateInput').value = host ? state.me : '';
+  $('#nameGateInput').placeholder = `e.g. Asha's ${host ? 'laptop' : deviceWord()}`;
+  $('#nameGateHint').textContent = host
+    ? 'Phones see this name in Send to and in the chat. You can change it later in the panel.'
+    : `Shown next to your files and messages, like "Asha's ${deviceWord()}". You can change it later in Nearby.`;
+  $('#nameGateError').replaceChildren();
+  $('#nameGate').hidden = false;
+  requestAnimationFrame(() => { $('#nameGateInput').focus(); if (host) $('#nameGateInput').select(); });
+}
+function closeNameGate() {
+  $('#nameGate').classList.add('leaving');
+  setTimeout(() => { $('#nameGate').hidden = true; $('#nameGate').classList.remove('leaving'); }, 300);
+}
+
+$('#nameGateForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const wanted = $('#nameGateInput').value.replace(/\s+/g, ' ').trim();
+  const error = $('#nameGateError');
+  if (!wanted) { error.replaceChildren('Type a name, or Skip to keep ', el('b', { textContent: state.local ? state.me : state.you })); return; }
+  const taken = takenBy(wanted);
+  if (taken) {
+    const other = freeName(wanted);
+    const use = el('button', { type: 'button', className: 'namegate-use', textContent: `Use ${other}` });
+    use.addEventListener('click', () => { $('#nameGateInput').value = other; error.replaceChildren(); $('#nameGateInput').focus(); });
+    error.replaceChildren(`Someone here is already called ${taken}. `, use);
+    return;
+  }
+  try {
+    const name = await saveName(wanted);
+    if (!state.local) local.set('rooftop-name', name);
+    closeNameGate();
+    toast(state.local ? `This PC is now called ${name}` : `Welcome, ${name}`);
+    refresh();
+  } catch (err) {
+    if (!(err instanceof PinError)) error.textContent = 'Could not save that name. Try again.';
+  }
+});
+$('#nameGateSkip').addEventListener('click', () => {
+  session.set('rooftop-name-skipped', '1'); // asks again next visit, until a name is saved
+  closeNameGate();
+});
+
 /* ---- names: each device picks the name others see ---- */
 async function saveName(name) {
   const res = await call('/api/name', { method: 'POST', body: name });
   return (await res.json()).name;
 }
 
+$('#youName').addEventListener('click', () => { $('#myName').focus(); $('#myName').select(); });
+
 $('#nameForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const wanted = $('#myName').value.trim();
+  const taken = takenBy(wanted);
+  if (taken) { toast(`Someone here is already called ${taken}. Try ${freeName(wanted)}`, 5000); return; }
   try {
     if (!wanted) { local.set('rooftop-name', ''); toast('Name cleared. It shows again after Rooftop restarts'); return; }
     const name = await saveName(wanted);
@@ -2377,6 +2456,7 @@ async function loadHistory() {
     const speed = h.ms > 0 ? ` · ${rate(h.size / (h.ms / 1000))}` : '';
     const packed = h.ratio < 0.95 ? ` · compressed to ${Math.max(1, Math.round(h.ratio * 100))}%` : '';
     const meta = `${h.mine ? 'You' : h.from} → ${h.to === 'everyone' ? 'Everyone' : h.to === state.you ? 'You' : h.to} · ${humanSize(h.size)}${speed}${packed} · ${timeAgo(h.at)}`;
+    arrow.append(avatar({ id: h.fromId, name: h.from }, 'mini'));
     return el('li', { className: h.ok ? '' : 'failed' }, arrow,
       el('div', {}, el('div', { className: 'name', title: h.name, textContent: h.name }),
         el('div', { className: 'meta', textContent: h.ok ? meta : `Failed: ${h.note} · ${timeAgo(h.at)}` })));
@@ -2481,6 +2561,7 @@ function runIntro() {
     setTimeout(() => {
       $('#loader').classList.add('done');
       city.arrive();
+      maybeAskName();
     }, 1400);
   }, { once: true });
 }

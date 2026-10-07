@@ -37,6 +37,20 @@
   <p class="intro-credits">Made by Nishita, Aryan and Keshav</p>
 </div>
 
+<div class="namegate" id="nameGate" hidden>
+  <form class="namegate-card" id="nameGateForm" novalidate>
+    <p class="tx-title" id="nameGateKicker">Before you go up</p>
+    <h2 id="nameGateTitle">What should others call you?</h2>
+    <input id="nameGateInput" maxlength="32" autocomplete="nickname" spellcheck="false" enterkeyhint="go" aria-labelledby="nameGateTitle" aria-describedby="nameGateHint">
+    <p class="namegate-hint" id="nameGateHint"></p>
+    <p class="error" id="nameGateError" role="alert"></p>
+    <div class="namegate-row">
+      <button class="pill pill-primary" type="submit"><span class="disc"><svg class="i"><use href="#i-right"/></svg></span>Join</button>
+      <button class="namegate-skip" type="button" id="nameGateSkip">Skip</button>
+    </div>
+  </form>
+</div>
+
 <h1 class="sr-only">Rooftop: share files and text between devices on the same Wi-Fi</h1>
 
 <main class="frame">
@@ -208,7 +222,7 @@
       <h2 id="nearby-title">Nearby</h2>
       <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
     </header>
-    <p class="you">You are <strong id="youName">this device</strong>, connected to <strong id="pcName">the PC</strong>.</p>
+    <p class="you">You are <button type="button" class="you-name" id="youName" aria-label="Change your name">this device</button>, connected to <strong id="pcName">the PC</strong>.</p>
     <form class="name-form" id="nameForm">
       <label for="myName">Your name, as others see it</label>
       <span class="name-row"><input id="myName" maxlength="32" autocomplete="off" spellcheck="false" placeholder="e.g. Asha's phone"><button class="btn" type="submit">Save</button></span>
