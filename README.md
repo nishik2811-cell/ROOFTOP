@@ -45,6 +45,17 @@ Received files are saved to `~/Rooftop`.
 
 > **Same network only.** Home Wi-Fi and phone hotspots work. College and cafe Wi-Fi often block devices from seeing each other; use a hotspot there. On Windows, allow Java through the firewall and set the network to Private.
 
+### Phones can't connect?
+
+1. **Same network?** The phone must be on the same Wi-Fi or hotspot as the PC, with mobile data and VPNs off. If the PC's Wi-Fi is the one the phone shares (or the other way round), that works too.
+2. **Fresh link.** Scan the QR code again; the PIN changes with each new session.
+3. **The "not private" warning** is expected; tap through it (see step 2 above). If the page never loads at all, it is almost always the PC's firewall.
+4. **Let Rooftop through the firewall** (once per PC). Rooftop uses 8443/TCP for phones, 45454/UDP and 45455/TCP for other PCs.
+   - **Windows:** when the "Windows Defender Firewall" box appears on first start, tick *Private networks* and click *Allow*. If you missed it: *Settings, Network & internet*, set the Wi-Fi to *Private*; then *Windows Security, Firewall & network protection, Allow an app through firewall*, and tick Java (OpenJDK Platform binary) for Private.
+   - **macOS:** click *Allow* when asked whether Java may accept incoming connections. If you missed it: *System Settings, Network, Firewall, Options*, and set Java to *Allow incoming connections*.
+   - **Linux (ufw):** `sudo ufw allow 8443/tcp && sudo ufw allow 45454/udp && sudo ufw allow 45455/tcp`. With firewalld: `sudo firewall-cmd --permanent --add-port=8443/tcp --add-port=45454/udp --add-port=45455/tcp && sudo firewall-cmd --reload`. `start-linux.sh` prints these for you when it sees the firewall is on.
+5. **Still nothing?** College and cafe Wi-Fi often keep devices apart. Use a phone hotspot instead.
+
 ### Android app
 
 `Rooftop.apk` (Android 10+) runs the host on the phone itself, so no laptop is needed. Other phones and iPhones join it through their browser.
