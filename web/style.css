@@ -1480,3 +1480,12 @@ body.is-host .host-more[hidden] { display: none !important; }
   body.is-host .host-more { grid-row: auto; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
   body.is-host .frame > .credits { grid-row: auto; }
 }
+
+/* the cards under the city: everything centred */
+body.is-host .host-more .host-card { justify-items: center; text-align: center; }
+body.is-host .host-more .host-card h2 { justify-content: center; gap: 10px; }
+body.is-host .host-more .session-btn { justify-self: stretch; }
+body.is-host .host-more .host-messages li { text-align: left; }
+body.is-host .host-more .key-list { justify-self: stretch; }
+.intro-e2e { display: inline-flex; align-items: center; gap: 6px; }
+.intro-e2e .i { width: 0.9em; height: 0.9em; }
