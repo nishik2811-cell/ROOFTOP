@@ -6,12 +6,23 @@ public class Transfer {
     private final Payload payload;
     private final String pin;
     private final Progress progress;    // created with this transfer and never shared
+    private final long queuedAt;
 
     public Transfer(NetworkDevice target, Payload payload, String pin) {
+        this(target, payload, pin, System.currentTimeMillis());
+    }
+
+    private Transfer(NetworkDevice target, Payload payload, String pin, long queuedAt) {
         this.target = target;
         this.payload = payload;
         this.pin = pin;
         this.progress = new Progress(payload.size());
+        this.queuedAt = queuedAt;
+    }
+
+    /** When it was first queued; retries keep the original time. */
+    public long queuedAt() {
+        return queuedAt;
     }
 
     public NetworkDevice target() {
@@ -32,10 +43,24 @@ public class Transfer {
 
     /** A fresh attempt of the same send, with its own progress. */
     public Transfer retry() {
-        return new Transfer(target, payload, pin);
+        return new Transfer(target, payload, pin, queuedAt);
     }
 
     private volatile long nanos = -1;
+    private volatile double wireRatio = 1;
+
+    /** Bytes on the wire per byte of payload, set when the transfer was compressed. */
+    public void setWireRatio(double ratio) {
+        wireRatio = ratio;
+    }
+
+    public double wireRatio() {
+        return wireRatio;
+    }
+
+    public long millis() {
+        return nanos < 0 ? 0 : nanos / 1_000_000;
+    }
 
     /** Called once the receiver confirmed: the measured wall-clock time of the data transfer. */
     public void finished(long elapsedNanos) {

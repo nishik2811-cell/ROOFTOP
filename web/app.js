@@ -71,7 +71,13 @@ if (params.has('pin')) {
 
 class PinError extends Error {}
 
-const withPin = (path) => (isLocal ? path : path + (path.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(pin));
+// Each browser keeps a random id, so two browsers behind one address (two tabs apps, one laptop) are two devices.
+const deviceId = local.get('rooftop-device') || (() => {
+  const id = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  local.set('rooftop-device', id);
+  return id;
+})();
+const withPin = (path) => (isLocal ? path : path + (path.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(pin) + '&device=' + deviceId);
 const fileUrl = (name) => withPin('/api/files/' + encodeURIComponent(name));
 const saveUrl = (name) => withPin('/api/files/' + encodeURIComponent(name) + '?dl=1'); // asks the browser to save, not open
 
@@ -1244,6 +1250,7 @@ async function refresh() {
     }
     announceText(next.texts);
     renderSheets();
+    syncName();
     registerKey();
     offerSealed(next.sealed || []);
   } catch (e) {
@@ -1256,16 +1263,17 @@ async function refresh() {
 
 /** A file that showed up since the last poll and did not come from this device. */
 function arrival(files) {
-  const fresh = knownFiles ? files.find((f) => !knownFiles.has(f.name) && f.from !== state.you) : null;
+  const fresh = knownFiles ? files.find((f) => !knownFiles.has(f.name) && !f.mine) : null;
   knownFiles = new Set(files.map((f) => f.name));
   return fresh;
 }
 
-/** Pops the "incoming transmission" card for a message from another device. */
+/** Pops the "incoming transmission" card for a message from another device, unless the chat is open anyway. */
 function announceText(texts) {
-  const newest = texts[0];
-  if (lastTextAt !== null && newest && newest.at > lastTextAt && newest.from !== state.you) transmission(null, newest);
-  lastTextAt = newest ? newest.at : 0;
+  const newest = texts.find((t) => !t.mine);
+  if (lastTextAt !== null && newest && newest.at > lastTextAt && !$('#sheet-notes').open) transmission(null, newest);
+  if (newest) lastTextAt = Math.max(lastTextAt || 0, newest.at);
+  else if (lastTextAt === null) lastTextAt = 0;
 }
 
 let txTimer = 0;
@@ -1273,6 +1281,7 @@ function transmission(file, message) {
   const box = $('#transmission');
   const open = $('#txOpen');
   const copy = $('#txCopy');
+  notify(file ? `${file.name}` : `Message from ${message.from}`, file ? `From ${file.from}, ${humanSize(file.size)}` : message.text);
   if (file) {
     $('#txBody').textContent = `${file.name} from ${file.from}`;
     open.href = saveUrl(file.name);
@@ -1280,7 +1289,9 @@ function transmission(file, message) {
   } else {
     $('#txBody').textContent = `"${message.text}" from ${message.from}`;
     copy.onclick = () => copyText(message.text);
+    $('#txTitle').textContent = message.private ? 'Private message' : 'Incoming transmission';
   }
+  if (file) $('#txTitle').textContent = 'Incoming transmission';
   open.hidden = !file;
   copy.hidden = !!file;
   box.hidden = false;
@@ -1316,8 +1327,9 @@ function select(index, animate = true, story = true) {
 /* ---- after the city opens: ring cursor, hover preview, story panel ---- */
 /** "Aryan → Everyone" style: who sent it, and to whom. "You" when it is this device. */
 function route(f) {
-  const who = (n) => (n === state.you ? 'You' : n);
-  return `${who(f.from)} → ${f.to ? who(f.to) : 'Everyone'}`;
+  const from = f.mine ? 'You' : f.from;
+  const to = !f.to || f.to === 'everyone' ? 'Everyone' : f.to === state.you ? 'You' : f.to;
+  return `${from} → ${to}`;
 }
 
 function paintThumb(el, f) {
@@ -1382,16 +1394,20 @@ function updateNav() {
 
 /** Who can receive: everyone, the PC (when you are a guest), and every other browser that is connected. */
 function renderRecipients() {
-  const select = $('#sendTo');
-  const keep = select.value;
   const options = [['*', 'Everyone']];
   if (!state.local && state.meId) options.push([state.meId, state.me + ' (PC)']);
   for (const d of state.devices) if (d.kind !== 'PC' && d.id) options.push([d.id, d.name]);
-  select.replaceChildren(...options.map(([value, text]) => el('option', { value, textContent: text })));
-  select.value = options.some(([v]) => v === keep) ? keep : '*';
+  const key = JSON.stringify(options);
+  for (const select of [$('#sendTo'), $('#chatTo')]) {
+    if (select.dataset.key === key) continue; // rebuilding an open dropdown would close it
+    const keep = select.value;
+    select.replaceChildren(...options.map(([value, text]) => el('option', { value, textContent: text })));
+    select.value = options.some(([v]) => v === keep) ? keep : '*';
+    select.dataset.key = key;
+  }
 }
 
-/* ---- uploads ---- */
+/* ---- sending: a queue that runs a few files at once, small ones first ---- */
 const picker = $('#picker');
 picker.addEventListener('change', () => {
   const chosen = [...picker.files];
@@ -1399,49 +1415,282 @@ picker.addEventListener('change', () => {
   upload(chosen);
 });
 
-let uploading = false;
-async function upload(list) {
+const PARALLEL = 3;          // files moving at the same time
+const SMALL_FILE = 1 << 20;  // a file up to 1 MB may start even when all lanes are busy with big ones
+const AGING_MS = 20000;      // and a big file never waits longer than this behind smaller ones
+const jobs = [];             // every send since the page opened: waiting, sending, sent, failed, cancelled
+let jobSeq = 0;
+let batch = 0;               // goes up each time the queue starts from idle; the button shows this batch's progress
+class Cancelled extends Error {}
+
+/** Queues files for whoever is chosen in "Send to" right now. Works any time, also while other files are sending. */
+function upload(list) {
   if (!list.length) return;
-  if (uploading) { toast('Still sending, one batch at a time'); return; }
-  const target = $('#sendTo').value;
-  if (target !== '*' && target !== state.meId && !sealedTarget()) {
+  const to = $('#sendTo').value;
+  const sealedTo = sealedTarget();
+  if (to !== '*' && to !== state.meId && !sealedTo) {
     toast('That device cannot receive private files yet. Ask them to reload Rooftop, or send to Everyone.', 6000);
     return;
   }
-  uploading = true;
-  const label = $('#sendLabel');
-  const fill = $('#sendFill');
-  let sent = 0;
+  if (!busy()) { batch++; city.startFlight(); }
+  const toName = sealedTo ? sealedTo.name : to === '*' ? 'Everyone' : state.me;
+  for (const file of list) {
+    jobs.push({ id: ++jobSeq, file, to, toName, sealed: sealedTo && { id: sealedTo.id, key: sealedTo.key, name: sealedTo.name },
+      state: 'waiting', sent: 0, speed: 0, queuedAt: Date.now(), batch, xhr: null, cancelled: false, note: '' });
+  }
+  if (jobs.filter((j) => j.state === 'sending').length >= PARALLEL) toast(`${list.length > 1 ? list.length + ' files' : list[0].name} queued`);
+  pump();
+  renderTray();
+}
+
+const busy = () => jobs.some((j) => j.state === 'waiting' || j.state === 'sending');
+
+/** Starts as many waiting files as there are free lanes. */
+function pump() {
+  for (;;) {
+    const waiting = jobs.filter((j) => j.state === 'waiting');
+    if (!waiting.length) return;
+    const sending = jobs.filter((j) => j.state === 'sending');
+    const smallest = waiting.reduce((a, b) => (b.file.size < a.file.size ? b : a));
+    let next = null;
+    if (sending.length < PARALLEL) next = waiting.find((j) => Date.now() - j.queuedAt > AGING_MS) || smallest;
+    else if (sending.length === PARALLEL && smallest.file.size <= SMALL_FILE && sending.every((j) => j.file.size > SMALL_FILE)) next = smallest;
+    if (!next) return;
+    run(next);
+  }
+}
+
+async function run(job) {
+  job.state = 'sending';
+  job.startedAt = performance.now();
   try {
-    for (let i = 0; i < list.length; i++) {
-      city.startFlight(list[i].name);
-      const send = sealedTarget() ? sendSealed : sendOne;
-      await send(list[i], (p) => {
-        label.textContent = list.length > 1 ? `${i + 1} of ${list.length}  ${Math.round(p * 100)}%` : `Sending ${Math.round(p * 100)}%`;
-        fill.style.transform = `scaleX(${p})`;
-        city.flightProgress(p);
-      });
-      sent++;
-    }
-    const sealedTo = sealedTarget();
-    if (sealedTo) {
-      const code = await safetyCodeFor(sealedTo.key);
-      toast(`Sent privately to ${sealedTo.name}. Safety code ${code}: it should show the same on their screen.`, 10000);
-    } else toast(sent > 1 ? `${sent} files sent to ${state.me}` : `Sent to ${state.me}`);
+    const res = await (job.sealed ? sendSealed(job) : sendOne(job));
+    job.state = 'sent';
+    job.sent = job.file.size;
+    job.savedAs = res?.name || job.file.name;
+    if (job.sealed) job.note = `Safety code ${await safetyCodeFor(job.sealed.key)}`;
   } catch (e) {
-    if (!(e instanceof PinError)) toast(`Upload failed: ${e.message}`, 5000);
-  } finally {
-    uploading = false;
-    label.textContent = 'Send files';
-    fill.style.transform = 'scaleX(0)';
-    city.endFlight();
-    knownFiles = null; // our own files are not "incoming"
-    await refresh();
-    if (sent) {
-      const name = list[sent - 1].name;
-      const index = city.murals().findIndex((m) => m.file.name === name || m.file.from === state.you);
-      if (index >= 0) { select(index, true, false); city.celebrate(index); }
+    job.state = job.cancelled ? 'cancelled' : 'failed';
+    if (!job.cancelled) job.note = e instanceof PinError ? 'needs the PIN, then retry' : e.message;
+  }
+  job.xhr = null;
+  job.endedAt = performance.now();
+  pump();
+  renderTray();
+  if (!busy()) finishBatch();
+}
+
+/** Everything in this batch is done: land the plane, tell the person, and show where the last file went up. */
+async function finishBatch() {
+  city.endFlight();
+  const mine = jobs.filter((j) => j.batch === batch);
+  const sent = mine.filter((j) => j.state === 'sent'), failed = mine.filter((j) => j.state === 'failed');
+  const sealed = sent.filter((j) => j.sealed);
+  if (failed.length) toast(`${sent.length} sent, ${failed.length} failed. Retry from the list.`, 6000);
+  else if (sealed.length === sent.length && sealed.length) toast(`Sent privately to ${sealed[0].sealed.name}. ${sealed[sealed.length - 1].note}: it should show the same on their screen.`, 10000);
+  else if (sent.length) toast(sent.length > 1 ? `${sent.length} files sent` : `Sent to ${sent[0].toName === 'Everyone' ? state.me : sent[0].toName}`);
+  await refresh();
+  const last = [...sent].reverse().find((j) => !j.sealed);
+  if (last) {
+    const index = city.murals().findIndex((m) => m.file.name === last.savedAs);
+    if (index >= 0) { select(index, true, false); city.celebrate(index); }
+  }
+  if (!failed.length) setTimeout(() => { if (!busy()) clearFinished(true); }, 8000);
+}
+
+function cancelJob(job) {
+  if (job.state === 'waiting') { job.state = 'cancelled'; renderTray(); if (!busy()) finishBatch(); return; }
+  if (job.state !== 'sending') return;
+  job.cancelled = true;
+  job.xhr?.abort();
+}
+
+function retryJob(job) {
+  Object.assign(job, { state: 'waiting', sent: 0, speed: 0, queuedAt: Date.now(), cancelled: false, note: '' });
+  if (!jobs.some((j) => j !== job && j.state === 'sending')) { batch++; city.startFlight(); }
+  job.batch = batch;
+  pump();
+  renderTray();
+}
+
+function clearFinished(auto = false) {
+  for (let i = jobs.length - 1; i >= 0; i--) {
+    const j = jobs[i];
+    if (j.state === 'sent' || j.state === 'cancelled' || (!auto && j.state === 'failed')) { jobs.splice(i, 1); trayRows.get(j.id)?.remove(); trayRows.delete(j.id); }
+  }
+  renderTray();
+}
+
+/* ---- the transfers tray: live speed, time left and a speed graph ---- */
+const trayRows = new Map(); // job id -> its row, kept so buttons are not rebuilt under the pointer
+const speedTrail = [];      // total speed every half second, for the graph
+const TRAIL = 60;           // 30 seconds of history
+let trayOpen = true;
+
+function duration(seconds) {
+  if (!isFinite(seconds)) return '';
+  if (seconds < 60) return Math.max(1, Math.round(seconds)) + ' s';
+  if (seconds < 3600) return Math.round(seconds / 60) + ' min';
+  return Math.floor(seconds / 3600) + ' h ' + Math.round((seconds % 3600) / 60) + ' min';
+}
+const rate = (bytesPerSecond) => humanSize(Math.max(0, Math.round(bytesPerSecond))) + '/s';
+
+// Twice a second: how fast each file moves, smoothed so the numbers do not jump around.
+setInterval(() => {
+  const sending = jobs.filter((j) => j.state === 'sending');
+  for (const j of sending) {
+    const now = performance.now(), dt = (now - (j.lastTick || j.startedAt)) / 1000;
+    const instant = dt > 0 ? (j.sent - (j.lastSent || 0)) / dt : 0;
+    j.speed = j.speed ? j.speed * 0.6 + instant * 0.4 : instant;
+    j.lastTick = now;
+    j.lastSent = j.sent;
+  }
+  if (sending.length || speedTrail.length) {
+    speedTrail.push(sending.reduce((a, j) => a + j.speed, 0));
+    if (speedTrail.length > TRAIL) speedTrail.shift();
+    if (!busy() && speedTrail.every((v) => v === 0)) speedTrail.length = 0;
+  }
+  if (jobs.length) renderTray();
+}, 500);
+
+function renderTray() {
+  const tray = $('#tray');
+  tray.hidden = !jobs.length;
+  if (!jobs.length) { setSendButton(); return; }
+  tray.classList.toggle('folded', !trayOpen);
+  const active = jobs.filter((j) => j.state === 'sending'), waiting = jobs.filter((j) => j.state === 'waiting');
+  const speed = active.reduce((a, j) => a + j.speed, 0);
+  const left = [...active, ...waiting].reduce((a, j) => a + j.file.size - j.sent, 0);
+  const done = jobs.filter((j) => j.state === 'sent').length, failed = jobs.filter((j) => j.state === 'failed').length;
+  $('#trayTitle').textContent = active.length || waiting.length
+    ? `Sending ${active.length}${waiting.length ? `, ${waiting.length} waiting` : ''}`
+    : failed ? `${done} sent, ${failed} failed` : `${done} sent`;
+  $('#traySum').textContent = active.length
+    ? `${rate(speed)}${speed > 0 ? ` · ${duration(left / speed)} left` : ''}`
+    : waiting.length ? 'Starting' : 'All done';
+  drawSpeedGraph();
+
+  const list = $('#trayList');
+  for (const j of jobs) {
+    let row = trayRows.get(j.id);
+    if (!row) {
+      row = el('li', { className: 'job' },
+        el('span', { className: 'job-name', textContent: j.file.name, title: j.file.name }),
+        el('span', { className: 'job-meta' }),
+        el('span', { className: 'job-bar' }, el('i')),
+        el('button', { type: 'button', className: 'job-act' }));
+      row.lastChild.addEventListener('click', () => {
+        if (j.state === 'failed' || j.state === 'cancelled') retryJob(j);
+        else if (j.state === 'sent') { jobs.splice(jobs.indexOf(j), 1); row.remove(); trayRows.delete(j.id); renderTray(); }
+        else cancelJob(j);
+      });
+      trayRows.set(j.id, row);
+      list.append(row);
     }
+    row.className = 'job is-' + j.state;
+    const pct = j.file.size ? Math.min(100, Math.floor((j.sent / j.file.size) * 100)) : 100;
+    const to = j.toName === 'Everyone' ? '' : ` · to ${j.toName}`;
+    row.children[1].textContent = {
+      waiting: `Waiting · ${humanSize(j.file.size)}${to}`,
+      sending: `${pct}% · ${rate(j.speed)}${j.speed > 0 ? ` · ${duration((j.file.size - j.sent) / j.speed)} left` : ''}${j.compressed ? ' · compressed' : ''}${to}`,
+      sent: `Sent · ${humanSize(j.file.size)}${j.endedAt ? ` · ${rate(j.file.size / Math.max(0.001, (j.endedAt - j.startedAt) / 1000))}` : ''}${j.note ? ' · ' + j.note : ''}${to}`,
+      failed: `Failed: ${j.note}`,
+      cancelled: 'Cancelled',
+    }[j.state];
+    row.children[2].firstChild.style.transform = `scaleX(${j.state === 'sent' ? 1 : pct / 100})`;
+    const act = row.lastChild;
+    const [iconId, label] = j.state === 'failed' || j.state === 'cancelled' ? ['i-retry', 'Try again'] : j.state === 'sent' ? ['i-x', 'Clear'] : ['i-x', 'Cancel'];
+    if (act.dataset.icon !== iconId) { act.replaceChildren(icon(iconId)); act.dataset.icon = iconId; }
+    act.setAttribute('aria-label', `${label} ${j.file.name}`);
+  }
+  $('#trayClear').hidden = !jobs.some((j) => j.state === 'sent' || j.state === 'failed' || j.state === 'cancelled');
+  setSendButton();
+}
+
+/** The Send button doubles as the progress bar of the current batch. */
+function setSendButton() {
+  const mine = jobs.filter((j) => j.batch === batch && j.state !== 'cancelled');
+  const total = mine.reduce((a, j) => a + j.file.size, 0), sent = mine.reduce((a, j) => a + (j.state === 'sent' ? j.file.size : j.sent), 0);
+  const p = total ? sent / total : 1;
+  const on = busy();
+  const left = jobs.filter((j) => j.state === 'waiting' || j.state === 'sending').length;
+  $('#sendLabel').textContent = on ? `Sending ${left > 1 ? left + ' · ' : ''}${Math.round(p * 100)}%` : 'Send files';
+  $('#sendFill').style.transform = `scaleX(${on ? p : 0})`;
+  if (on) city.flightProgress(p);
+}
+
+// One series, so no legend: the title above names it. A 2px line over a faint fill; hover reads a value off it.
+let graphHover = -1;
+function drawSpeedGraph() {
+  const canvas = $('#trayGraph');
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+  const c = canvas.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  const max = Math.max(1, ...speedTrail) * 1.15;
+  const x = (i) => w - (speedTrail.length - 1 - i) * (w / (TRAIL - 1));
+  const y = (v) => h - 2 - (v / max) * (h - 6);
+  c.strokeStyle = 'rgb(242 238 230 / 0.14)'; // baseline
+  c.lineWidth = 1;
+  c.beginPath(); c.moveTo(0, h - 1.5); c.lineTo(w, h - 1.5); c.stroke();
+  if (speedTrail.length < 2) return;
+  c.beginPath();
+  speedTrail.forEach((v, i) => (i ? c.lineTo(x(i), y(v)) : c.moveTo(x(i), y(v))));
+  c.lineTo(x(speedTrail.length - 1), h); c.lineTo(x(0), h); c.closePath();
+  c.fillStyle = 'rgb(42 169 179 / 0.22)';
+  c.fill();
+  c.beginPath();
+  speedTrail.forEach((v, i) => (i ? c.lineTo(x(i), y(v)) : c.moveTo(x(i), y(v))));
+  c.strokeStyle = '#2aa9b3';
+  c.lineWidth = 2;
+  c.lineJoin = 'round';
+  c.stroke();
+  const i = graphHover >= 0 ? Math.min(graphHover, speedTrail.length - 1) : -1;
+  if (i >= 0) {
+    c.strokeStyle = 'rgb(242 238 230 / 0.5)';
+    c.lineWidth = 1;
+    c.beginPath(); c.moveTo(x(i), 0); c.lineTo(x(i), h); c.stroke();
+    c.fillStyle = '#2aa9b3';
+    c.strokeStyle = '#171615';
+    c.lineWidth = 2;
+    c.beginPath(); c.arc(x(i), y(speedTrail[i]), 4, 0, Math.PI * 2); c.fill(); c.stroke();
+  }
+  $('#trayPeak').textContent = i >= 0 ? `${rate(speedTrail[i])}, ${Math.round((speedTrail.length - 1 - i) / 2)} s ago` : `peak ${rate(Math.max(...speedTrail))}`;
+}
+$('#trayGraph').addEventListener('pointermove', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const fromRight = Math.round((r.right - e.clientX) / (r.width / (TRAIL - 1)));
+  graphHover = speedTrail.length - 1 - fromRight;
+  if (graphHover < 0) graphHover = -1;
+  drawSpeedGraph();
+});
+$('#trayGraph').addEventListener('pointerleave', () => { graphHover = -1; drawSpeedGraph(); });
+$('#trayFold').addEventListener('click', () => {
+  trayOpen = !trayOpen;
+  $('#trayFold').setAttribute('aria-expanded', String(trayOpen));
+  $('#trayFold').setAttribute('aria-label', trayOpen ? 'Hide the list' : 'Show the list');
+  renderTray();
+});
+$('#trayClear').addEventListener('click', () => clearFinished());
+
+/* ---- compression: only when the file actually shrinks ---- */
+const PACKED = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'heic', 'heif', 'mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi',
+  'mp3', 'm4a', 'aac', 'ogg', 'opus', 'flac', 'zip', 'gz', 'tgz', '7z', 'rar', 'xz', 'bz2', 'zst', 'br',
+  'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp', 'epub', 'apk', 'aab', 'ipa', 'jar', 'dmg', 'pdf']);
+const canGzip = typeof CompressionStream === 'function';
+const gzip = (blob) => new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+
+/** Packs a quarter megabyte of the file as a test; worth it only if that comes out at least a fifth smaller. */
+async function worthCompressing(file) {
+  if (!canGzip || file.size < 64 * 1024 || PACKED.has(extOf(file.name))) return false;
+  try {
+    const sample = file.slice(0, 256 * 1024);
+    return (await gzip(sample)).size < sample.size * 0.8;
+  } catch {
+    return false;
   }
 }
 
@@ -1451,47 +1700,57 @@ const PIECE = 4 * 1024 * 1024;
 const RETRIES = 3;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function sendOne(file, onProgress) {
+async function sendOne(job) {
+  const file = job.file;
   const key = `${file.name}|${file.size}|${file.lastModified}`;
+  job.compressed = await worthCompressing(file);
   let offset = 0, failures = 0;
   for (;;) {
+    if (job.cancelled) throw new Cancelled();
     const end = Math.min(file.size, offset + PIECE);
     let res;
     try {
-      res = await sendPiece(file, key, offset, end, (loaded) => onProgress(file.size ? (offset + loaded) / file.size : 1));
+      const raw = file.slice(offset, end);
+      const body = job.compressed ? await gzip(raw) : raw;
+      res = await sendPiece(job, key, offset, end - offset, body, (loaded) => { job.sent = offset + (body.size ? loaded / body.size : 1) * (end - offset); });
     } catch (e) {
-      if (e instanceof PinError || e.fatal) throw e;
-      if (++failures > RETRIES) throw new Error('connection lost. Send the same file again to continue where it stopped');
-      toast(`Connection hiccup, retrying (${failures} of ${RETRIES})`);
+      if (e instanceof PinError || e.fatal || job.cancelled) throw e;
+      if (++failures > RETRIES) throw new Error('connection lost. Try again to continue where it stopped');
+      job.note = `retrying (${failures} of ${RETRIES})`;
       await sleep(1000 * failures);
       continue; // same offset; if the PC got more than we think, it answers 409 with the right place
     }
     failures = 0;
+    job.note = '';
     if (res.done) return res;
-    if (res.status === 409 && res.offset > offset) toast('Resuming where it stopped');
+    if (res.status === 409 && res.offset > offset) job.note = 'resumed';
     offset = res.offset;
+    job.sent = offset;
   }
 }
 
-function sendPiece(file, key, offset, end, onLoaded) {
+function sendPiece(job, key, offset, rawLength, body, onLoaded) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    const q = `?name=${encodeURIComponent(file.name)}&size=${file.size}&key=${encodeURIComponent(key)}&offset=${offset}&to=${encodeURIComponent($('#sendTo').value)}`;
+    job.xhr = x;
+    const q = `?name=${encodeURIComponent(job.file.name)}&size=${job.file.size}&key=${encodeURIComponent(key)}&offset=${offset}&to=${encodeURIComponent(job.to)}`
+      + (job.compressed ? `&z=gzip&raw=${rawLength}` : '');
     x.open('POST', withPin('/api/upload' + q));
     x.upload.onprogress = (e) => onLoaded(e.loaded);
     x.onload = () => {
-      let body = {};
-      try { body = JSON.parse(x.responseText); } catch { /* not JSON */ }
-      if (x.status === 200) resolve(body);
-      else if (x.status === 409) resolve({ offset: body.offset, status: 409 }); // the PC tells us where to carry on
+      let res = {};
+      try { res = JSON.parse(x.responseText); } catch { /* not JSON */ }
+      if (x.status === 200) resolve(res);
+      else if (x.status === 409) resolve({ offset: res.offset, status: 409 }); // the PC tells us where to carry on
       else if (x.status === 403) { askPin('That PIN did not work.'); reject(new PinError()); }
       else if (x.status >= 500) reject(new Error('the PC had a problem'));
       else reject(Object.assign(new Error(x.responseText || 'HTTP ' + x.status), { fatal: true }));
     };
+    x.onabort = () => reject(new Cancelled());
     x.onerror = () => reject(new Error('connection lost'));
     x.ontimeout = () => reject(new Error('timed out'));
     x.timeout = 120000;
-    x.send(file.slice(offset, end));
+    x.send(body);
   });
 }
 
@@ -1544,32 +1803,37 @@ function sealedTarget() {
   return d && d.key ? d : null;
 }
 
-async function sendSealed(file, onProgress) {
-  const target = sealedTarget();
+async function sendSealed(job) {
+  const target = job.sealed;
+  const file = job.file;
   const key = E2E.b64(crypto.getRandomValues(new Uint8Array(12))); // a new id per send: one-time keys never mix
   const pieces = E2E.seal(file, file.name, E2E.unb64(target.key), myRaw);
   let offset = 0, total = 0;
   for await (const piece of pieces) {
     if (!total) total = E2E.sealedSize(file.size, piece.length - 8);
     for (let failures = 0; ;) {
+      if (job.cancelled) throw new Cancelled();
       try {
-        const res = await postSealed(piece, key, offset, total, target.id, (loaded) => onProgress((offset + loaded) / total));
+        const res = await postSealed(job, piece, key, offset, total, (loaded) => { job.sent = ((offset + loaded) / total) * file.size; });
         if (res.offset === offset + piece.length) break;
         if (res.offset !== offset) throw Object.assign(new Error('the PC lost track of this file'), { fatal: true });
       } catch (e) {
-        if (e instanceof PinError || e.fatal || ++failures > RETRIES) throw e;
-        toast(`Connection hiccup, retrying (${failures} of ${RETRIES})`);
+        if (e instanceof PinError || e.fatal || job.cancelled || ++failures > RETRIES) throw e;
+        job.note = `retrying (${failures} of ${RETRIES})`;
         await sleep(1000 * failures);
       }
     }
     offset += piece.length;
   }
+  job.note = '';
+  return null;
 }
 
-function postSealed(piece, key, offset, total, to, onLoaded) {
+function postSealed(job, piece, key, offset, total, onLoaded) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open('POST', withPin(`/api/sealed/upload?key=${key}&offset=${offset}&size=${total}&to=${encodeURIComponent(to)}`));
+    job.xhr = x;
+    x.open('POST', withPin(`/api/sealed/upload?key=${key}&offset=${offset}&size=${total}&to=${encodeURIComponent(job.sealed.id)}`));
     x.upload.onprogress = (e) => onLoaded(e.loaded);
     x.onload = () => {
       let body = {};
@@ -1578,6 +1842,7 @@ function postSealed(piece, key, offset, total, to, onLoaded) {
       else if (x.status === 403) { askPin('That PIN did not work.'); reject(new PinError()); }
       else reject(Object.assign(new Error(x.responseText || 'HTTP ' + x.status), { fatal: x.status < 500 }));
     };
+    x.onabort = () => reject(new Cancelled());
     x.onerror = () => reject(new Error('connection lost'));
     x.send(piece);
   });
@@ -1591,6 +1856,7 @@ function offerSealed(list) {
   const next = list.find((s) => !sealedDone.has(s.id));
   if (!next) return;
   sealedShowing = next;
+  notify('Private file', `${humanSize(next.size)} waiting for you`);
   $('#sealedBody').textContent = `${humanSize(next.size)} waiting for you. Only this device can open it.`;
   $('#sealedCode').textContent = '';
   $('#sealedOpen').hidden = false;
@@ -1697,15 +1963,12 @@ function renderSheets() {
   }));
   $('#fileEmpty').hidden = state.files.length > 0;
 
-  $('#textList').replaceChildren(...state.texts.map((t) => {
-    const b = el('button', { type: 'button', textContent: t.text });
-    b.addEventListener('click', () => { $('#note').value = t.text; $('#note').focus(); $('#note').select(); });
-    return el('li', {}, b);
-  }));
-  $('#textEmpty').hidden = state.texts.length > 0;
+  renderChat();
 
   $('.you').hidden = state.local;
+  $('#nameForm').hidden = state.local;
   $('#youName').textContent = state.you || 'this device';
+  if (document.activeElement !== $('#myName')) $('#myName').value = local.get('rooftop-name') || '';
   $('#pcName').textContent = state.me || 'the PC';
   $('#deviceList').replaceChildren(...state.devices.map((d) => {
     const li = el('li', {}, el('span', { textContent: d.name }), el('span', { className: 'kind', textContent: d.kind }));
@@ -1715,6 +1978,8 @@ function renderSheets() {
   $('#deviceList').hidden = !state.devices.length;
   $('#deviceEmpty').hidden = state.devices.length > 0;
   if (isLocal) renderHost();
+  renderNotify();
+  if ($('#sheet-inbox').open && !$('#panelHistory').hidden && state.historyAt !== historyAt) loadHistory();
 }
 
 /* ---- the PC's own console ---- */
@@ -1732,7 +1997,7 @@ function renderHost() {
     copy.setAttribute('aria-label', 'Copy message');
     copy.addEventListener('click', () => copyText(t.text));
     const li = el('li', {}, el('span', { className: 'msg', textContent: t.text }),
-      el('span', { className: 'meta', textContent: `${t.from}, ${timeAgo(t.at)}` }), copy);
+      el('span', { className: 'meta', textContent: `${t.mine ? 'You' : t.from}${t.private ? ' → ' + t.to : ''}, ${timeAgo(t.at)}` }), copy);
     if (!first && !seenTexts.has(key)) li.classList.add('fresh');
     return li;
   }));
@@ -1740,6 +2005,7 @@ function renderHost() {
   if (first && !state.texts.length) seenTexts.add('none');
   $('#hostMessages').hidden = !state.texts.length;
   $('#hostMessagesEmpty').hidden = state.texts.length > 0;
+  if (document.activeElement !== $('#hostName')) $('#hostName').value = state.me;
 }
 
 let hostUrl = '';
@@ -1807,9 +2073,12 @@ $('#noteForm').addEventListener('submit', async (e) => {
   if (!text.trim()) { error.textContent = 'Type or paste something first.'; return; }
   error.textContent = '';
   try {
-    await call('/api/text', { method: 'POST', body: text });
-    toast(`Text is on ${state.me}'s clipboard`);
-    refresh();
+    const to = $('#chatTo').value;
+    await call('/api/text?to=' + encodeURIComponent(to), { method: 'POST', body: text });
+    $('#note').value = '';
+    if (to === '*' && !state.local) toast(`Sent. It is on ${state.me}'s clipboard too`);
+    chatStick = true;
+    await refresh();
   } catch (err) {
     if (!(err instanceof PinError)) error.textContent = 'Could not reach the PC. Try again.';
   }
@@ -1826,17 +2095,183 @@ $('#pullClip').addEventListener('click', async () => {
   }
 });
 
-$('#copyNote').addEventListener('click', async () => {
-  const note = $('#note');
-  try {
-    await navigator.clipboard.writeText(note.value);
-  } catch {
-    note.focus();
-    note.select();
-    document.execCommand('copy'); // older browsers
+// Enter sends, Shift+Enter starts a new line (on a keyboard; phones keep Enter for new lines)
+$('#note').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(pointer: fine)').matches) {
+    e.preventDefault();
+    $('#noteForm').requestSubmit();
   }
-  toast('Copied');
 });
+
+/* ---- chat: bubbles, newest at the bottom, a dot on the button for unread messages ---- */
+let chatKey = '';
+let chatStick = true; // keep the newest message in view unless the person scrolled up to read
+let readUpTo = Number(session.get('rooftop-read') || 0);
+$('#sheet-notes .sheet-inner').addEventListener('scroll', () => {
+  const l = $('#sheet-notes .sheet-inner');
+  chatStick = l.scrollHeight - l.scrollTop - l.clientHeight < 40;
+});
+
+function renderChat() {
+  const texts = [...state.texts].reverse(); // oldest first
+  const key = texts.map((t) => t.at + t.from).join('|') + state.you;
+  if (key !== chatKey) {
+    chatKey = key;
+    $('#textList').replaceChildren(...texts.map((t) => {
+      const copy = el('button', { className: 'icon-btn', type: 'button' }, icon('i-copy'));
+      copy.setAttribute('aria-label', 'Copy message');
+      copy.addEventListener('click', () => copyText(t.text));
+      const who = t.mine ? (t.private ? `You → ${t.to}` : 'You') : t.private ? `${t.from} → you` : t.from;
+      return el('li', { className: 'msg' + (t.mine ? ' mine' : '') + (t.private ? ' private' : '') },
+        el('div', { className: 'bubble', textContent: t.text }),
+        el('div', { className: 'msg-meta' }, el('span', { textContent: `${who} · ${timeAgo(t.at)}` }), copy));
+    }));
+    if ($('#sheet-notes').open && chatStick) requestAnimationFrame(() => { const l = $('#sheet-notes .sheet-inner'); l.scrollTop = l.scrollHeight; });
+  }
+  $('#textEmpty').hidden = state.texts.length > 0;
+  $('#pullClip').hidden = state.local;
+  if ($('#sheet-notes').open) markRead();
+  const unread = state.texts.some((t) => !t.mine && t.at > readUpTo);
+  $('#chatDot').hidden = !unread;
+  $('#chatBtn').setAttribute('aria-label', unread ? 'Chat, new messages' : 'Chat');
+}
+
+function markRead() {
+  const newest = state.texts.reduce((a, t) => Math.max(a, t.at), 0);
+  if (newest > readUpTo) { readUpTo = newest; session.set('rooftop-read', String(readUpTo)); }
+}
+
+$('#sheet-notes').addEventListener('close', () => { chatStick = true; });
+document.querySelector('[data-sheet="notes"]').addEventListener('click', () => {
+  markRead();
+  renderChat();
+  chatStick = true;
+  requestAnimationFrame(() => { const l = $('#sheet-notes .sheet-inner'); l.scrollTop = l.scrollHeight; });
+});
+
+/* ---- names: each device picks the name others see ---- */
+async function saveName(name) {
+  const res = await call('/api/name', { method: 'POST', body: name });
+  return (await res.json()).name;
+}
+
+$('#nameForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const wanted = $('#myName').value.trim();
+  try {
+    if (!wanted) { local.set('rooftop-name', ''); toast('Name cleared. It shows again after Rooftop restarts'); return; }
+    const name = await saveName(wanted);
+    local.set('rooftop-name', name);
+    $('#myName').value = name;
+    toast(`Others now see you as ${name}`);
+    refresh();
+  } catch (err) {
+    if (!(err instanceof PinError)) toast('Could not save that name');
+  }
+});
+
+$('#hostNameForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const name = await saveName($('#hostName').value);
+    $('#hostName').value = name;
+    $('#hostName').blur();
+    toast(`This PC is now called ${name}`);
+    refresh();
+  } catch {
+    toast('Could not save that name');
+  }
+});
+
+// The PC forgets a phone's name when it restarts or starts a new session; the phone tells it again.
+let nameSent = '';
+function syncName() {
+  const wanted = local.get('rooftop-name');
+  if (state.local || !wanted || state.you === wanted || nameSent === wanted + state.you) return;
+  nameSent = wanted + state.you;
+  saveName(wanted).catch(() => { nameSent = ''; });
+}
+
+/* ---- history: every file that went through this PC in this session ---- */
+let historyAt = -1;
+function showTab(name) {
+  const files = name === 'files';
+  $('#tabFiles').setAttribute('aria-selected', String(files));
+  $('#tabHistory').setAttribute('aria-selected', String(!files));
+  $('#panelFiles').hidden = !files;
+  $('#panelHistory').hidden = files;
+  if (!files) loadHistory();
+}
+$('#tabFiles').addEventListener('click', () => showTab('files'));
+$('#tabHistory').addEventListener('click', () => showTab('history'));
+$('#sheet-inbox').addEventListener('keydown', (e) => {
+  if ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && e.target.getAttribute('role') === 'tab') {
+    const other = e.target.id === 'tabFiles' ? $('#tabHistory') : $('#tabFiles');
+    other.focus();
+    other.click();
+  }
+});
+
+async function loadHistory() {
+  historyAt = state.historyAt;
+  let entries;
+  try {
+    entries = await (await call('/api/history')).json();
+  } catch {
+    return;
+  }
+  $('#historyList').replaceChildren(...entries.map((h) => {
+    const way = h.mine ? 'sent' : h.to === state.you || h.to === 'everyone' ? 'got' : 'passed';
+    const arrow = el('span', { className: 'way way-' + way, textContent: way === 'sent' ? '↑' : way === 'got' ? '↓' : '⇄' });
+    arrow.setAttribute('aria-label', way === 'sent' ? 'Sent' : way === 'got' ? 'Received' : 'Between other devices');
+    const speed = h.ms > 0 ? ` · ${rate(h.size / (h.ms / 1000))}` : '';
+    const packed = h.ratio < 0.95 ? ` · compressed to ${Math.max(1, Math.round(h.ratio * 100))}%` : '';
+    const meta = `${h.mine ? 'You' : h.from} → ${h.to === 'everyone' ? 'Everyone' : h.to === state.you ? 'You' : h.to} · ${humanSize(h.size)}${speed}${packed} · ${timeAgo(h.at)}`;
+    return el('li', { className: h.ok ? '' : 'failed' }, arrow,
+      el('div', {}, el('div', { className: 'name', title: h.name, textContent: h.name }),
+        el('div', { className: 'meta', textContent: h.ok ? meta : `Failed: ${h.note} · ${timeAgo(h.at)}` })));
+  }));
+  $('#historyEmpty').hidden = entries.length > 0;
+}
+
+/* ---- notifications: a system notification while Rooftop is in the background, a count in the tab title ---- */
+const baseTitle = document.title;
+let unseen = 0;
+const canNotify = 'Notification' in window && window.isSecureContext;
+const notifyOn = () => canNotify && Notification.permission === 'granted' && local.get('rooftop-notify') === 'on';
+
+function notify(title, body) {
+  if (navigator.vibrate && !document.hidden) navigator.vibrate(60);
+  if (!document.hidden) return;
+  unseen++;
+  document.title = `(${unseen}) ${baseTitle}`;
+  if (notifyOn()) {
+    try { new Notification(title, { body: body.slice(0, 140), tag: 'rooftop-' + Date.now() }); } catch { /* Android Chrome wants a service worker; the title count still shows */ }
+  }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { unseen = 0; document.title = baseTitle; } });
+
+function renderNotify() {
+  const on = notifyOn();
+  for (const b of document.querySelectorAll('[data-notify]')) {
+    b.hidden = !canNotify;
+    b.setAttribute('aria-pressed', String(on));
+    b.lastChild.textContent = on ? 'Notifications on' : 'Notify me when something arrives';
+  }
+  const note = !canNotify ? 'This browser cannot show notifications here, so new things are counted in the tab title instead.'
+    : Notification.permission === 'denied' ? 'Notifications are blocked for this page in the browser settings.'
+    : on ? 'You get a notification when a file or message arrives while Rooftop is in the background.' : '';
+  for (const p of document.querySelectorAll('[data-notify-note]')) { p.textContent = note; p.hidden = !note; }
+}
+document.querySelectorAll('[data-notify]').forEach((b) => b.addEventListener('click', async () => {
+  if (notifyOn()) local.set('rooftop-notify', 'off');
+  else {
+    const answer = await Notification.requestPermission();
+    local.set('rooftop-notify', answer === 'granted' ? 'on' : 'off');
+    if (answer === 'granted') toast('Notifications on');
+  }
+  renderNotify();
+}));
 
 /* ---- PIN ---- */
 function askPin(message) {

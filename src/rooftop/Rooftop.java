@@ -1,9 +1,11 @@
 package rooftop;
 
 import java.io.IOException;
+import rooftop.model.History;
 import rooftop.model.Inbox;
 import rooftop.model.NetworkDevice;
 import rooftop.model.PhoneClient;
+import rooftop.model.ReceivedItem;
 import rooftop.model.ReceivedText;
 import rooftop.model.SealedBox;
 import rooftop.model.ThisDevice;
@@ -17,7 +19,6 @@ import rooftop.security.PinGuard;
 import rooftop.util.ActivityLog;
 import rooftop.util.QrCode;
 import rooftop.util.Registry;
-import rooftop.util.Threads;
 
 /** Composition root, shared by the PC and Android builds. Platform differences come in through {@link Platform}. */
 public class Rooftop {
@@ -26,6 +27,7 @@ public class Rooftop {
     private final Registry<String, NetworkDevice> devices = new Registry<>();
     private final PinGuard pins = new PinGuard();
     private final ActivityLog log = new ActivityLog();
+    private final History history = new History();
     private final SendQueue sendQueue = new SendQueue(this);
     private final WebServer web = new WebServer(this);
     private final Inbox inbox;
@@ -35,6 +37,8 @@ public class Rooftop {
         this.platform = platform;
         this.me = new ThisDevice(platform.deviceName());
         this.inbox = new Inbox(platform.inboxDir());
+        if (java.nio.file.Files.isRegularFile(nameFile())) // a name picked earlier on this PC
+            me.rename(new String(java.nio.file.Files.readAllBytes(nameFile()), java.nio.charset.StandardCharsets.UTF_8));
         // a hidden temp folder, away from the inbox, for end-to-end encrypted files passing through
         this.sealed = new SealedBox(java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"), "rooftop-sealed-" + System.getProperty("user.name", "app")));
     }
@@ -42,7 +46,7 @@ public class Rooftop {
     public void start() throws IOException {
         new Discovery(this).start();
         new TransferServer(this).start();
-        Threads.daemon("sender", sendQueue);
+        sendQueue.start();
         web.start();
         printBanner();
     }
@@ -60,10 +64,28 @@ public class Rooftop {
         System.out.println("  Type 'help' for commands.");
     }
 
-    public void receiveText(String text, String from) {
-        inbox.addText(text, from);
-        log.add("text from " + from + ": " + text);
-        platform.setClipboard(text);
+    /** A chat message. It lands on this PC's clipboard only if this PC is one of the people it is for. */
+    public void receiveText(String text, String from, String fromId, String to) {
+        inbox.addText(text, from, fromId, to);
+        boolean forMe = ReceivedItem.EVERYONE.equals(to) || ThisDevice.ID.equals(to);
+        log.add((forMe ? "text from " : "chat ") + from + (forMe ? ": " + text : " -> another device"));
+        if (forMe && !ThisDevice.ID.equals(fromId)) platform.setClipboard(text);
+    }
+
+    /** Renames this PC and remembers the name for next time. */
+    public boolean rename(String wanted) {
+        if (!me.rename(wanted)) return false;
+        try {
+            java.nio.file.Files.createDirectories(nameFile().getParent());
+            java.nio.file.Files.write(nameFile(), me.name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            log.add("could not save the new name: " + e.getMessage());
+        }
+        return true;
+    }
+
+    private java.nio.file.Path nameFile() {
+        return inbox.dir().resolve(".rooftop").resolve("name");
     }
 
     /** Ends the current session: new PIN, phones must join again, messages and received files cleared. */
@@ -72,6 +94,7 @@ public class Rooftop {
         int phones = devices.removeType(PhoneClient.class);
         int files = inbox.newSession();
         sealed.clear();
+        history.clear();
         log.add("new session: PIN " + pins.pin() + ", " + phones + " phone(s) disconnected, " + files + " file(s) removed");
     }
 
@@ -99,6 +122,10 @@ public class Rooftop {
 
     public ActivityLog log() {
         return log;
+    }
+
+    public History history() {
+        return history;
     }
 
     public Inbox inbox() {

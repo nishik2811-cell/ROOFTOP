@@ -12,7 +12,6 @@
 <!-- Icon paths from Tabler Icons (MIT). Inlined because this page must work on a Wi-Fi with no internet. -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M18 11l-6-6l-6 6"/></symbol>
-  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M21 12h-2c-.9 0-1.66-.86-1.76-2c-.3-3.45-.75-6-2.75-6s-2.5 3.58-2.5 8s-.5 8-2.5 8s-2.45-2.55-2.75-6c-.1-1.15-.87-2-1.76-2H3"/></symbol>
   <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 8a4 4 0 0 0 0 8z" fill="currentColor"/><path d="M3 12h1m8-9v1m8 8h1m-9 8v1M5.6 5.6l.7.7m12.1-.7l-.7.7m0 11.4l.7.7m-12.1-.7l-.7.7"/></symbol>
   <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 6l-6 6l6 6"/></symbol>
@@ -20,6 +19,9 @@
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M7 11l5 5l5-5"/><path d="M12 4v12"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0-15.5-2m-.5-4v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M8 9h8"/><path d="M8 13h6"/><path d="M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5l-5 3v-3h-2a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3h12z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6"/><path d="M9 17v1a3 3 0 0 0 6 0v-1"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></symbol>
 </svg>
 
@@ -68,15 +70,26 @@
         <button class="pill" type="button" data-sheet="inbox">Inbox</button>
       </div>
       <div class="joined">
-        <button class="round" type="button" data-sheet="notes" aria-label="Text and clipboard"><svg class="i"><use href="#i-wave"/></svg></button>
+        <button class="round" type="button" data-sheet="notes" id="chatBtn" aria-label="Chat"><svg class="i"><use href="#i-chat"/></svg><span class="dot" id="chatDot" hidden></span></button>
         <button class="round" type="button" data-sheet="nearby" aria-label="Nearby devices"><svg class="i"><use href="#i-target"/></svg></button>
       </div>
     </nav>
 
     <p class="toast" id="toast" role="status" aria-live="polite"></p>
 
+    <aside class="tray" id="tray" aria-label="Files being sent" hidden>
+      <div class="tray-head">
+        <p class="tx-title" id="trayTitle">Sending</p>
+        <button class="icon-btn" type="button" id="trayFold" aria-expanded="true" aria-label="Hide the list"><svg class="i"><use href="#i-down"/></svg></button>
+      </div>
+      <p class="tray-sum"><span id="traySum"></span><span class="tray-peak" id="trayPeak"></span></p>
+      <canvas class="tray-graph" id="trayGraph" aria-label="Total sending speed over the last 30 seconds"></canvas>
+      <ul class="tray-list" id="trayList"></ul>
+      <button class="tray-clear" type="button" id="trayClear">Clear finished</button>
+    </aside>
+
     <aside class="transmission" id="transmission" role="status" aria-live="polite" hidden>
-      <p class="tx-title">Incoming transmission</p>
+      <p class="tx-title" id="txTitle">Incoming transmission</p>
       <p class="tx-body" id="txBody"></p>
       <a class="tx-open" id="txOpen" download>Save</a>
       <button class="tx-open" type="button" id="txCopy" hidden>Copy</button>
@@ -107,6 +120,10 @@
       <div class="qr-wrap"><canvas id="hostQr" width="480" height="480" aria-label="QR code that opens Rooftop on a phone"></canvas></div>
       <p class="host-url"><span id="hostUrl">Starting</span><button class="icon-btn" type="button" id="copyUrl" aria-label="Copy link"><svg class="i"><use href="#i-copy"/></svg></button></p>
       <p class="host-pin">PIN <strong id="hostPin">------</strong></p>
+      <form class="name-form" id="hostNameForm">
+        <label for="hostName">This PC is called</label>
+        <span class="name-row"><input id="hostName" maxlength="32" autocomplete="off" spellcheck="false"><button class="btn" type="submit">Save</button></span>
+      </form>
       <p class="host-net" id="hostNet"></p>
       <details class="host-help">
         <summary>Phone says "not private"?</summary>
@@ -123,9 +140,15 @@
     </section>
 
     <section class="host-card">
-      <h2>Messages</h2>
+      <h2>Chat</h2>
       <ul class="host-messages" id="hostMessages" aria-live="polite"></ul>
-      <p class="empty" id="hostMessagesEmpty">Text sent from a phone appears here and on this PC's clipboard.</p>
+      <p class="empty" id="hostMessagesEmpty">Messages appear here. Ones sent to Everyone or to this PC also land on its clipboard.</p>
+    </section>
+
+    <section class="host-card">
+      <h2>Notifications</h2>
+      <button class="notify-btn" type="button" data-notify aria-pressed="false"><svg class="i"><use href="#i-bell"/></svg><span>Notify me when something arrives</span></button>
+      <p class="empty notify-note" data-notify-note></p>
     </section>
   </aside>
 </main>
@@ -135,34 +158,40 @@
   <div class="sheet-inner">
     <header class="sheet-head">
       <h2 id="inbox-title">Inbox</h2>
+      <div class="tabs" role="tablist" aria-label="Inbox views">
+        <button type="button" role="tab" id="tabFiles" aria-selected="true" aria-controls="panelFiles">Files</button>
+        <button type="button" role="tab" id="tabHistory" aria-selected="false" aria-controls="panelHistory">History</button>
+      </div>
       <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
     </header>
-    <ul class="files" id="fileList"></ul>
-    <p class="empty" id="fileEmpty">Nothing here yet. Files sent to this PC, from any phone or PC, land here and get painted on a wall.</p>
+    <div id="panelFiles" role="tabpanel" aria-labelledby="tabFiles">
+      <ul class="files" id="fileList"></ul>
+      <p class="empty" id="fileEmpty">Nothing here yet. Files sent to this PC, from any phone or PC, land here and get painted on a wall.</p>
+    </div>
+    <div id="panelHistory" role="tabpanel" aria-labelledby="tabHistory" hidden>
+      <ul class="history" id="historyList"></ul>
+      <p class="empty" id="historyEmpty">Every file sent or received in this session is listed here, also after the file itself is removed.</p>
+    </div>
   </div>
 </dialog>
 
-<dialog class="sheet" id="sheet-notes" aria-labelledby="notes-title">
+<dialog class="sheet sheet-chat" id="sheet-notes" aria-labelledby="notes-title">
   <div class="sheet-inner">
     <header class="sheet-head">
-      <h2 id="notes-title">Text and clipboard</h2>
+      <h2 id="notes-title">Chat</h2>
       <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
     </header>
-    <form class="field" id="noteForm" novalidate>
-      <label for="note">Message</label>
-      <textarea id="note" rows="4" placeholder="A link, a code, an address"></textarea>
+    <ul class="chat" id="textList" aria-live="polite"></ul>
+    <p class="empty" id="textEmpty">No messages yet. Messages to Everyone also land on the PC's clipboard.</p>
+    <form class="field chat-form" id="noteForm" novalidate>
+      <label for="note">Message to <select id="chatTo" aria-label="Who gets this message"><option value="*">Everyone</option></select></label>
+      <textarea id="note" rows="2" placeholder="A link, a code, an address"></textarea>
       <p class="error" id="noteError" role="alert"></p>
       <div class="btn-row">
-        <button class="btn btn-primary" type="submit">Send to PC</button>
+        <button class="btn btn-primary" type="submit">Send</button>
         <button class="btn" type="button" id="pullClip">Get PC clipboard</button>
-        <button class="btn" type="button" id="copyNote">Copy</button>
       </div>
     </form>
-    <section class="recent" aria-labelledby="recent-title">
-      <h3 id="recent-title">Recent</h3>
-      <ul class="texts" id="textList"></ul>
-      <p class="empty" id="textEmpty">No messages yet.</p>
-    </section>
   </div>
 </dialog>
 
@@ -173,6 +202,12 @@
       <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
     </header>
     <p class="you">You are <strong id="youName">this device</strong>, connected to <strong id="pcName">the PC</strong>.</p>
+    <form class="name-form" id="nameForm">
+      <label for="myName">Your name, as others see it</label>
+      <span class="name-row"><input id="myName" maxlength="32" autocomplete="off" spellcheck="false" placeholder="e.g. Asha's phone"><button class="btn" type="submit">Save</button></span>
+    </form>
+    <button class="notify-btn" type="button" data-notify aria-pressed="false"><svg class="i"><use href="#i-bell"/></svg><span>Notify me when something arrives</span></button>
+    <p class="empty notify-note" data-notify-note></p>
     <ul class="devices" id="deviceList"></ul>
     <p class="empty" id="deviceEmpty">No other devices right now. Phones appear when they open the link. PCs appear when they run Rooftop on this Wi-Fi.</p>
   </div>

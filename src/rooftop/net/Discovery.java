@@ -29,15 +29,18 @@ public class Discovery implements Runnable {
     /** Announcer loop. */
     @Override
     public void run() {
-        byte[] message = (Wire.BEACON + app.me().name()).getBytes(StandardCharsets.UTF_8);
         try (DatagramSocket socket = new DatagramSocket()) {
             socket.setBroadcast(true);
             while (!Thread.currentThread().isInterrupted()) {
-                for (InterfaceAddress ia : Network.lanAddresses()) {
-                    try {
-                        socket.send(new DatagramPacket(message, message.length, ia.getBroadcast(), Wire.UDP_PORT));
-                    } catch (IOException e) {
-                        // that network card went away; the others still get the beacon
+                // built every time, so a renamed PC is announced under its new name
+                for (String prefix : new String[]{Wire.BEACON, Wire.BEACON_FRAMES}) {
+                    byte[] message = (prefix + app.me().name()).getBytes(StandardCharsets.UTF_8);
+                    for (InterfaceAddress ia : Network.lanAddresses()) {
+                        try {
+                            socket.send(new DatagramPacket(message, message.length, ia.getBroadcast(), Wire.UDP_PORT));
+                        } catch (IOException e) {
+                            // that network card went away; the others still get the beacon
+                        }
                     }
                 }
                 Thread.sleep(BEACON_EVERY_MS);
@@ -56,23 +59,27 @@ public class Discovery implements Runnable {
                 DatagramPacket packet = new DatagramPacket(buf, buf.length);
                 socket.receive(packet);
                 String message = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8);
-                if (!message.startsWith(Wire.BEACON)) continue;
-                String name = message.substring(Wire.BEACON.length()).trim();
+                boolean frames = message.startsWith(Wire.BEACON_FRAMES);
+                if (!frames && !message.startsWith(Wire.BEACON)) continue;
+                String name = message.substring((frames ? Wire.BEACON_FRAMES : Wire.BEACON).length()).trim();
                 if (name.isEmpty() || name.equals(app.me().name())) continue;
-                seen(name, packet.getAddress());
+                seen(name, packet.getAddress(), frames);
             }
         } catch (IOException e) {
             app.log().add("discovery off (is another Rooftop running?): " + e.getMessage());
         }
     }
 
-    private void seen(String name, InetAddress address) {
+    private void seen(String name, InetAddress address, boolean frames) {
         NetworkDevice known = app.devices().find(name).orElse(null);
-        if (known != null && known.address().equals(address)) {
+        if (known instanceof PcPeer pc && known.address().equals(address)) {
             known.touch();
+            if (frames) pc.setTakesFrames();
             return;
         }
-        app.devices().put(name, new PcPeer(name, address));
+        PcPeer peer = new PcPeer(name, address);
+        if (frames) peer.setTakesFrames();
+        app.devices().put(name, peer);
         if (known == null) app.log().add("spotted " + name + " at " + address.getHostAddress());
     }
 }

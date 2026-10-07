@@ -73,6 +73,29 @@ public class SelfTest {
         check(cut && kept == 120_000 && refused && Arrays.equals(Files.readAllBytes(dir.resolve(resumed)), big),
                 "dropped transfer resumes at byte " + kept + " and the file is identical");
 
+        // compression between PCs: text shrinks, random bytes are sent as they are, and nothing after the frames is eaten
+        byte[] words = new byte[2_500_000];
+        for (int i = 0; i < words.length; i++) words[i] = (byte) "the quick brown fox jumps over the lazy dog\n".charAt(i % 44);
+        Object[] text = framesRoundTrip(words, true);
+        check(Arrays.equals((byte[]) text[0], words) && (double) text[1] < 0.2 && (boolean) text[2],
+                "text goes compressed (" + Math.round((double) text[1] * 100) + "% of its size) and arrives intact");
+        Object[] noise = framesRoundTrip(big, true);
+        check(Arrays.equals((byte[]) noise[0], big) && (double) noise[1] > 0.99 && (boolean) noise[2], "random bytes are not compressed and arrive intact");
+        check(!rooftop.net.Frames.worthTrying("clip.MP4") && rooftop.net.Frames.worthTrying("notes.txt"), "videos are never compressed, text is tried");
+        byte[] wire = (byte[]) text[3];
+        wire[20] ^= 0x55;
+        boolean damaged = false;
+        try {
+            Streams.copy(new rooftop.net.Frames.Decoder(new ByteArrayInputStream(wire)), new java.io.ByteArrayOutputStream(), words.length, new Progress(words.length));
+        } catch (IOException e) {
+            damaged = true;
+        }
+        check(damaged, "a damaged compressed frame is caught");
+
+        // names people pick for their devices
+        check("Asha's phone".equals(rooftop.model.Device.cleanName("  Asha's\n  phone\u200b ")) && rooftop.model.Device.cleanName(" \t ") == null
+                && rooftop.model.Device.cleanName("x".repeat(50)).length() == 32, "device names are cleaned and capped");
+
         // encrypted channel: 1 MB survives the trip byte for byte
         byte[] payload = new byte[1 << 20];
         new Random(7).nextBytes(payload);
@@ -87,6 +110,20 @@ public class SelfTest {
         }
         check(caught, "tampered ciphertext is rejected");
         System.out.println("all checks passed");
+    }
+
+    /** Encodes data as Frames followed by a marker byte, decodes it again: {decoded, ratio, marker intact, wire bytes}. */
+    private static Object[] framesRoundTrip(byte[] data, boolean tryCompress) throws IOException {
+        java.io.ByteArrayOutputStream wire = new java.io.ByteArrayOutputStream();
+        rooftop.net.Frames.Encoder enc = new rooftop.net.Frames.Encoder(wire, tryCompress);
+        enc.write(data, 0, data.length);
+        enc.finish();
+        wire.write(42); // stands in for the checksum that follows the frames on a real connection
+        byte[] bytes = wire.toByteArray();
+        InputStream in = new ByteArrayInputStream(bytes);
+        java.io.ByteArrayOutputStream got = new java.io.ByteArrayOutputStream();
+        Streams.copy(new rooftop.net.Frames.Decoder(in), got, data.length, new Progress(data.length));
+        return new Object[]{got.toByteArray(), enc.ratio(), in.read() == 42, bytes};
     }
 
     /** Sends {@code data} through a SecureChannel over loopback, optionally via a relay that flips one bit. */

@@ -14,6 +14,12 @@ Made by **Nishita, Aryan and Keshav**.
 - Encrypted transfers: HTTPS for phones, ECDH + AES-256-GCM between PCs.
 - **Private files, end-to-end encrypted:** a file sent to one phone is sealed in the sender's browser and only the recipient's browser can open it. The PC in the middle stores only ciphertext and deletes it once the recipient saves the file. Both screens show a 6-digit safety code to compare.
 - **Reliable transfers:** big files go in pieces, so a dropped Wi-Fi resumes instead of starting over; failed sends retry automatically; PC-to-PC files are checked with SHA-256.
+- **Smarter sending:** pick as many files as you like, any time. Three move at once, small ones go first (a big file never waits more than 20 s behind them), and each can be cancelled or retried. A tray shows live speed, time left and a speed graph.
+- **Compression only when it helps:** text-like files are packed on the way (in the browser, or between PCs) if a sample actually shrinks; photos, videos and archives are sent as they are.
+- **Chat** between all devices, to everyone or to one device, with an unread dot.
+- **Custom names** for every phone and PC, remembered across restarts.
+- **History** of every file sent and received in the session, with speed, also after the file is removed.
+- **Notifications** when a file or message arrives while Rooftop is in the background (and a count in the tab title).
 - A 6-digit PIN protects every session. **End session, start new** (PC panel) gives a fresh PIN, disconnects all phones and deletes received files and messages.
 - Remove any file with the **×** on it (in the city or the inbox). Phones can only remove files they sent.
 - Received files appear on billboards and walls of a small explorable city, with a day and night mode.
@@ -109,6 +115,8 @@ Type these in the window where Rooftop runs:
 | `send <pc> <pin> <file>` | send a file to another PC |
 | `text <pc> <pin> <message>` | send text to another PC's clipboard |
 | `inbox`, `rm <name>` | list or delete received files |
+| `history` | files sent and received in this session |
+| `name <new name>` | rename this PC |
 | `qr` | show the link, QR code and PIN again |
 | `session` | end this session: new PIN, phones disconnected, messages and files deleted |
 | `radar` | open the radar window (applet) |

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.net.ssl.SSLContext;
@@ -22,6 +23,7 @@ import rooftop.error.InvalidFileNameException;
 import rooftop.error.OffsetMismatchException;
 import rooftop.error.WrongPinException;
 import rooftop.model.Device;
+import rooftop.model.History;
 import rooftop.model.NetworkDevice;
 import rooftop.model.PhoneClient;
 import rooftop.model.Progress;
@@ -59,8 +61,12 @@ public class WebServer {
         IMAGE_TYPES.put("avif", "image/avif");
     }
 
+    private static final long MAX_GZIP_PIECE = 64L << 20; // what one compressed piece may expand to
+
     private final Rooftop app;
     private String scheme = "https";
+    /** Resumable uploads in progress: when the first piece came, and bytes on the wire vs bytes of file so far. */
+    private final Map<String, long[]> uploads = new ConcurrentHashMap<>();
 
     public WebServer(Rooftop app) {
         this.app = app;
@@ -134,6 +140,8 @@ public class WebServer {
                     String to = recipient(req.query.get("to"));
                     long started = System.nanoTime();
                     ReceivedItem item = app.inbox().store(req.query.get("name"), req.body, req.length, visitor, visitorId, to, new Progress(req.length));
+                    app.history().add(new History.Entry(System.currentTimeMillis(), item.name(), item.size(), visitor, visitorId, to,
+                            recipientName(to), true, (System.nanoTime() - started) / 1_000_000, 1, ""));
                     app.log().add(visitor + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(req.length) + ", "
                             + Texts.speed(req.length, System.nanoTime() - started) + ")");
                     res.send(200, JSON, "{\"name\":" + Texts.json(item.name()) + "}");
@@ -145,10 +153,21 @@ public class WebServer {
                     return;
                 }
                 String text = new String(rooftop.util.Streams.readUpTo(req.body, Wire.MAX_TEXT), StandardCharsets.UTF_8);
-                if (!text.trim().isEmpty()) app.receiveText(text, visitor);
+                if (!text.trim().isEmpty()) app.receiveText(text, visitor, visitorId, recipient(req.query.get("to")));
                 res.send(200, TEXT, "ok");
             }
             case "/clip" -> res.send(200, TEXT, app.clipboard());
+            case "/name" -> { // a device picks the name others see
+                if (!post) {
+                    res.send(405, TEXT, "POST only");
+                    return;
+                }
+                String wanted = new String(rooftop.util.Streams.readUpTo(req.body, 400), StandardCharsets.UTF_8);
+                boolean ok = local ? app.rename(wanted) : guest.rename(wanted);
+                if (ok) app.log().add(visitor + " is now called " + (local ? app.me() : guest).name());
+                res.send(ok ? 200 : 400, JSON, "{\"name\":" + Texts.json((local ? app.me() : guest).name()) + "}");
+            }
+            case "/history" -> res.header("Cache-Control", "no-store").send(200, JSON, historyJson(visitorId, local));
             case "/key" -> { // a browser registers its end-to-end public key
                 if (!post) res.send(405, TEXT, "POST only");
                 else {
@@ -215,29 +234,54 @@ public class WebServer {
             res.send(400, TEXT, "bad size or offset");
             return;
         }
-        if (size < 0 || offset < 0 || offset + req.length > size) {
+        // A piece may come gzipped when the browser found that the file shrinks; raw is its length unpacked.
+        boolean gzip = "gzip".equals(req.query.get("z"));
+        long count = req.length;
+        if (gzip) {
+            try {
+                count = Long.parseLong(req.query.getOrDefault("raw", "-1"));
+            } catch (NumberFormatException e) {
+                count = -1;
+            }
+        }
+        if (size < 0 || offset < 0 || count < 0 || (gzip && count > MAX_GZIP_PIECE) || offset + count > size) {
+            req.body.skip(req.length);
             res.send(400, TEXT, "bad size or offset");
             return;
         }
         // the id mixes in who is sending, so two phones with the same file never write into each other's upload
         String id = Texts.sha256(visitorId + "|" + req.query.get("key")).substring(0, 32);
+        long[] stats = uploads.computeIfAbsent(id, k -> new long[]{System.nanoTime(), 0, 0});
         long started = System.nanoTime();
         try {
-            app.inbox().append(id, offset, req.body, req.length, new Progress(req.length));
+            java.io.InputStream body = gzip ? new java.util.zip.GZIPInputStream(req.body, 64 * 1024) : req.body;
+            app.inbox().append(id, offset, body, count, new Progress(count));
+            if (gzip) while (req.body.read() >= 0) { /* the gzip trailer */ }
         } catch (OffsetMismatchException e) {
             req.body.skip(req.length); // read the piece anyway, or the browser sees a reset instead of our answer
             res.send(409, JSON, "{\"offset\":" + e.expected() + "}");
             return;
+        } catch (java.util.zip.ZipException e) { // what arrived unpacked is kept; the browser carries on from there
+            req.body.skip(req.length);
+            res.send(409, JSON, "{\"offset\":" + app.inbox().received(id) + "}");
+            return;
         }
-        long have = offset + req.length;
+        stats[1] += req.length;
+        stats[2] += count;
+        long have = offset + count;
         if (have < size) {
             res.send(200, JSON, "{\"offset\":" + have + "}");
             return;
         }
         String to = recipient(req.query.get("to"));
         ReceivedItem item = app.inbox().finish(id, req.query.get("name"), size, visitor, visitorId, to);
+        uploads.remove(id);
+        double ratio = stats[2] > 0 ? (double) stats[1] / stats[2] : 1;
+        app.history().add(new History.Entry(System.currentTimeMillis(), item.name(), size, visitor, visitorId, to, recipientName(to),
+                true, (System.nanoTime() - stats[0]) / 1_000_000, ratio, ""));
         app.log().add(visitor + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(size)
-                + (offset > 0 ? ", last piece " + Texts.speed(req.length, System.nanoTime() - started) : "") + ")");
+                + (offset > 0 ? ", last piece " + Texts.speed(req.length, System.nanoTime() - started) : "")
+                + (ratio < 0.95 ? String.format(Locale.ROOT, ", sent compressed to %d%%", Math.round(ratio * 100)) : "") + ")");
         res.send(200, JSON, "{\"done\":true,\"name\":" + Texts.json(item.name()) + "}");
     }
 
@@ -273,7 +317,9 @@ public class WebServer {
 
     private PhoneClient visitor(Http.Request req) {
         String ua = req.header("User-Agent") != null ? req.header("User-Agent") : "";
-        NetworkDevice device = app.devices().getOrAdd("web " + req.remote.getHostAddress(), () -> new PhoneClient(ua, req.remote));
+        String browser = req.query.getOrDefault("device", "");
+        String id = "web " + req.remote.getHostAddress() + (browser.matches("[0-9a-f]{16,40}") ? " " + browser : "");
+        NetworkDevice device = app.devices().getOrAdd(id, () -> new PhoneClient(ua, req.remote, id));
         device.touch();
         return (PhoneClient) device; // keys starting with "web " only ever hold PhoneClients
     }
@@ -293,13 +339,13 @@ public class WebServer {
     private String recipientName(String to) {
         if (ReceivedItem.EVERYONE.equals(to)) return "everyone";
         if (app.me().id().equals(to)) return app.me().name();
-        return app.devices().find(to).map(NetworkDevice::name).orElse(to);
+        return app.devices().find(to).map(NetworkDevice::name).orElse("a device that left");
     }
 
     private String stateJson(String visitor, String visitorId, boolean local) {
         StringJoiner devices = new StringJoiner(",", "[", "]");
         List<NetworkDevice> online = new ArrayList<>(app.devices().all());
-        online.removeIf(d -> !d.isOnline() || d.name().equals(visitor));
+        online.removeIf(d -> !d.isOnline() || d.id().equals(visitorId) || (!(d instanceof PhoneClient) && d.name().equals(visitor)));
         online.sort(Comparator.comparing(NetworkDevice::kind).thenComparing(NetworkDevice::name));
         for (NetworkDevice d : online)
             devices.add("{\"id\":" + Texts.json(d.id()) + ",\"name\":" + Texts.json(d.name()) + ",\"kind\":" + Texts.json(d.kind())
@@ -310,7 +356,7 @@ public class WebServer {
             if (!i.visibleTo(visitorId)) continue; // a file sent to one device stays private to it (and its sender)
             files.add("{\"name\":" + Texts.json(i.name()) + ",\"size\":" + i.size() + ",\"from\":" + Texts.json(i.from())
                     + ",\"to\":" + Texts.json(recipientName(i.to())) + ",\"at\":" + i.at()
-                    + ",\"removable\":" + canRemove(i, visitorId, local) + "}");
+                    + ",\"removable\":" + canRemove(i, visitorId, local) + ",\"mine\":" + i.fromId().equals(visitorId) + "}");
         }
 
         StringJoiner sealed = new StringJoiner(",", "[", "]"); // only ever this visitor's own, and never for the host
@@ -322,13 +368,31 @@ public class WebServer {
         }
 
         StringJoiner texts = new StringJoiner(",", "[", "]");
-        for (ReceivedText t : app.inbox().texts())
-            texts.add("{\"text\":" + Texts.json(t.text()) + ",\"from\":" + Texts.json(t.from()) + ",\"at\":" + t.at() + "}");
+        for (ReceivedText t : app.inbox().texts()) {
+            if (!local && !t.visibleTo(visitorId)) continue; // the PC's own screen sees every message that passed through it
+            texts.add("{\"text\":" + Texts.json(t.text()) + ",\"from\":" + Texts.json(t.from()) + ",\"to\":" + Texts.json(recipientName(t.to()))
+                    + ",\"private\":" + !ReceivedItem.EVERYONE.equals(t.to()) + ",\"mine\":" + t.fromId().equals(visitorId)
+                    + ",\"forMe\":" + (t.to().equals(visitorId) || ReceivedItem.EVERYONE.equals(t.to())) + ",\"at\":" + t.at() + "}");
+        }
+        List<History.Entry> history = app.history().newestFirst();
 
         return "{\"me\":" + Texts.json(app.me().name()) + ",\"meId\":" + Texts.json(app.me().id()) + ",\"you\":" + Texts.json(visitor)
                 + ",\"youId\":" + Texts.json(visitorId) + ",\"local\":" + local
                 + ",\"devices\":" + devices + ",\"files\":" + files + ",\"texts\":" + texts + ",\"sealed\":" + sealed
+                + ",\"historyAt\":" + (history.isEmpty() ? 0 : history.get(0).at())
                 + ",\"youKey\":" + Texts.json(local ? app.me().publicKey() : app.devices().find(visitorId).map(Device::publicKey).orElse("")) + "}";
+    }
+
+    private String historyJson(String visitorId, boolean local) {
+        StringJoiner out = new StringJoiner(",", "[", "]");
+        for (History.Entry e : app.history().newestFirst()) {
+            if (!local && !e.visibleTo(visitorId)) continue;
+            out.add("{\"at\":" + e.at() + ",\"name\":" + Texts.json(e.name()) + ",\"size\":" + e.size() + ",\"from\":" + Texts.json(e.from())
+                    + ",\"to\":" + Texts.json(e.toName()) + ",\"ok\":" + e.ok() + ",\"ms\":" + e.millis()
+                    + ",\"ratio\":" + String.format(Locale.ROOT, "%.3f", e.ratio()) + ",\"note\":" + Texts.json(e.note())
+                    + ",\"mine\":" + e.fromId().equals(visitorId) + "}");
+        }
+        return out.toString();
     }
 
     private String connectJson() throws IOException {

@@ -11,6 +11,10 @@ public final class Wire {
     public static final int HTTPS_PORT = 8443;
     public static final int LOCAL_PORT = 8080;
     public static final String BEACON = "ROOFTOP ";
+    /** Sent next to BEACON by PCs that understand compressed transfers. Older ones ignore it: it does not start with BEACON. */
+    public static final String BEACON_FRAMES = "ROOFTOP+FRAMES ";
+    /** Header type of a file sent in {@link Frames}, used only towards PCs that announced BEACON_FRAMES. */
+    public static final String FILE_FRAMED = "FILE+FRAMES";
     public static final int ACCEPT = 'Y';
     public static final int REJECT = 'N';
     public static final int DONE = 'D';
@@ -26,6 +30,7 @@ public final class Wire {
      *
      * <p>File transfer: header, then Y + the 8-byte offset to resume from (or N), then the bytes from that offset,
      * then the 32-byte SHA-256 of the whole file, then D (saved) or X (damaged, discarded).
+     * With type FILE_FRAMED the bytes from the offset travel as {@link Frames}; everything else is the same.
      */
     public record Header(String type, String pin, String name, long size, String key) {
         public void write(DataOutputStream out) throws IOException {

@@ -26,7 +26,7 @@ import rooftop.util.Streams;
 
 /** Received files and texts. ReceivedItems are plain values, so callers can keep them after removal. */
 public class Inbox {
-    private static final int MAX_TEXTS = 20;
+    private static final int MAX_TEXTS = 200;
     private static final long STALE_PART_MS = 24L * 60 * 60 * 1000; // unfinished transfers are kept this long for resuming
 
     private final Path dir;
@@ -208,8 +208,8 @@ public class Inbox {
         items.removeIf(i -> !Files.exists(dir.resolve(i.name())));
     }
 
-    public synchronized void addText(String text, String from) {
-        texts.addFirst(new ReceivedText(text, from, System.currentTimeMillis()));
+    public synchronized void addText(String text, String from, String fromId, String to) {
+        texts.addFirst(new ReceivedText(text, from, fromId, to, System.currentTimeMillis()));
         if (texts.size() > MAX_TEXTS) texts.removeLast();
     }
 

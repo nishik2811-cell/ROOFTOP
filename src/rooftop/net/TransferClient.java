@@ -13,6 +13,7 @@ import java.security.NoSuchAlgorithmException;
 import rooftop.error.RooftopException;
 import rooftop.error.TransferFailedException;
 import rooftop.model.Payload;
+import rooftop.model.PcPeer;
 import rooftop.model.Progress;
 import rooftop.model.Transfer;
 import rooftop.security.SecureChannel;
@@ -48,7 +49,9 @@ public final class TransferClient {
             DataOutputStream out = new DataOutputStream(channel.output());
             DataInputStream in = new DataInputStream(channel.input());
 
-            new Wire.Header(payload.wireType(), transfer.pin(), payload.name(), payload.size(), payload.resumeKey()).write(out);
+            boolean framed = Payload.FILE.equals(payload.wireType()) && transfer.target() instanceof PcPeer pc && pc.takesFrames();
+            String type = framed ? Wire.FILE_FRAMED : payload.wireType();
+            new Wire.Header(type, transfer.pin(), payload.name(), payload.size(), payload.resumeKey()).write(out);
             out.flush();
             int reply = in.read();
             if (reply == Wire.REJECT) throw new TransferFailedException(who + " says the PIN is wrong");
@@ -66,7 +69,14 @@ public final class TransferClient {
                 try (InputStream source = new DigestInputStream(payload.open(), sha)) {
                     Streams.copy(source, DISCARD, offset, new Progress(offset)); // already there: only hash it
                     transfer.progress().add(offset);
-                    Streams.copy(source, out, payload.size() - offset, transfer.progress());
+                    if (framed) {
+                        Frames.Encoder frames = new Frames.Encoder(out, Frames.worthTrying(payload.name()));
+                        Streams.copy(source, frames, payload.size() - offset, transfer.progress());
+                        frames.finish();
+                        transfer.setWireRatio(frames.ratio());
+                    } else {
+                        Streams.copy(source, out, payload.size() - offset, transfer.progress());
+                    }
                 }
                 out.write(sha.digest());
             }

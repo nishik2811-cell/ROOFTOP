@@ -122,6 +122,22 @@ public class Shell {
         System.out.println(app.inbox().remove(rest) ? "  deleted " + rest : "  no file called " + rest);
     }
 
+    @Command(usage = "<new name>", help = "rename this PC (other devices see the new name)")
+    void name(String rest) {
+        if (rest.isEmpty()) throw new UsageException();
+        System.out.println(app.rename(rest) ? "  this PC is now called " + app.me().name() : "  that name has nothing printable in it");
+    }
+
+    @Command(help = "files sent and received in this session")
+    void history(String rest) {
+        SimpleDateFormat time = new SimpleDateFormat("HH:mm");
+        var all = app.history().newestFirst();
+        if (all.isEmpty()) System.out.println("  nothing yet");
+        for (var e : all)
+            System.out.printf("  %s  %-32s %10s  %s -> %s%s%n", time.format(new Date(e.at())), e.name(), Texts.humanSize(e.size()), e.from(), e.toName(),
+                    e.ok() ? (e.millis() > 0 ? "  " + Texts.speed(e.size(), e.millis() * 1_000_000) : "") : "  FAILED: " + e.note());
+    }
+
     @Command(help = "recent activity")
     void log(String rest) {
         System.out.print(app.log().recent());
