@@ -1506,3 +1506,9 @@ button.notify-art { border: 0; padding: 0; cursor: pointer; transition: transfor
 button.notify-art:hover { transform: translate(-1px, -1px); color: var(--chalk); }
 button.notify-art:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--pink), 2px 2px 0 var(--accent); }
 button.notify-art.on { color: var(--ink); background: var(--accent); }
+
+/* phones: the opening screen gets room to breathe, the button clear of the big word */
+@media (max-width: 767px) {
+  .intro-enter { top: 70vh; }
+  .intro-extra { display: none; }
+}
