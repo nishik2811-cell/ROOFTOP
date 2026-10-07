@@ -1501,6 +1501,7 @@ body.is-host .host-more .my-key, body.is-host .host-more .notify-btn { align-sel
 .notify-art .i { width: 32px; height: 32px; }
 .notify-art.on { color: var(--accent); }
 .notify-what { text-align: center; }
+.notify-card .notify-art { position: relative; top: -14px; } /* sit a little higher in the card */
 /* the bell is the switch */
 button.notify-art { border: 0; padding: 0; cursor: pointer; transition: transform 0.25s var(--ease), color 0.2s; }
 button.notify-art:hover { transform: translate(-1px, -1px); color: var(--chalk); }
@@ -1508,7 +1509,13 @@ button.notify-art:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0
 button.notify-art.on { color: var(--ink); background: var(--accent); }
 
 /* phones: the opening screen gets room to breathe, the button clear of the big word */
+/* svh is the height you can actually see with the browser bars showing, so nothing slides under them */
 @media (max-width: 767px) {
-  .intro-enter { top: 70vh; }
   .intro-extra { display: none; }
+  body.intro-on.intro-s3 .stage { clip-path: inset(30.5vh 8vw calc(100% - 43.5vh) 8vw round 999px); clip-path: inset(30.5svh 8vw calc(100% - 43.5svh) 8vw round 999px); }
+  .intro.s3 .intro-window { top: 30.5vh; top: 30.5svh; height: 13vh; height: 13svh; }
+  .intro-title { top: 37vh; top: 37svh; gap: 17vh; gap: 17svh; }
+  .intro-enter { top: calc(45.5vh + 15vw + 8px); top: calc(45.5svh + 15vw + 8px); }
+  .intro-line { bottom: calc(10vh + env(safe-area-inset-bottom, 0px)); bottom: calc(10svh + env(safe-area-inset-bottom, 0px)); }
+  .intro-credits { bottom: calc(4vh + env(safe-area-inset-bottom, 0px)); bottom: calc(4svh + env(safe-area-inset-bottom, 0px)); }
 }
