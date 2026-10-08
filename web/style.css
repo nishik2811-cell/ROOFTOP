@@ -946,18 +946,36 @@ body.intro-on { overflow: hidden; }
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -3vh;
+  bottom: 2.2vh;
   margin: 0;
-  overflow: hidden;
+  padding: 0 4vw;
+  box-sizing: border-box;
   text-align: center;
-  color: var(--paper);
-  font: 800 27vw/0.82 "Shoulders", Impact, "Arial Narrow", sans-serif;
-  letter-spacing: 0.01em;
+  color: #f24b37;
+  font-family: "Shoulders", Impact, "Arial Black", sans-serif;
+  font-weight: 800;
+  font-style: italic;
+  font-size: clamp(42px, 13vw, 126px);
+  line-height: 1.05;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  -webkit-text-stroke: clamp(1.2px, 0.22vw, 2.5px) #151311;
+  text-shadow:
+    -5px -4px 0 #00a8e8,
+    -4px -3px 0 #00a8e8,
+    -3px -2px 0 #00a8e8,
+    -2px -1px 0 #00a8e8,
+    2px 2px 0 #151311,
+    3px 3px 0 #151311,
+    4px 5px 0 #151311,
+    0 10px 28px rgba(0, 0, 0, 0.65);
   transition: opacity 0.6s, transform 1.1s var(--ease);
+  pointer-events: none;
+  z-index: 2;
 }
-.intro-mark span { display: inline-block; transform: translateY(105%); transition: transform 0.9s var(--ease) calc(var(--i) * 70ms); }
+.intro-mark span { display: inline-block; transform: translateY(110%); transition: transform 0.9s var(--ease) calc(var(--i) * 70ms); }
 .intro.s1 .intro-mark span { transform: none; }
-.intro.s3 .intro-mark { opacity: 0; transform: translateY(30%); }
+.intro.s3 .intro-mark { opacity: 0; transform: translateY(20%); }
 
 .intro-title {
   position: absolute;
