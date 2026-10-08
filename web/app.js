@@ -1252,16 +1252,20 @@ async function refresh() {
     const key = next.files.map((f) => f.name + ':' + f.size).join('|');
     if (key !== filesKey) {
       filesKey = key;
-      const fresh = arrival(next.files);
+      const fresh = arrivals(next.files);
       const keep = city.murals()[selected]?.file.name;
       city.setFiles(next.files);
       const murals = city.murals();
-      const freshIndex = fresh ? murals.findIndex((m) => m.file.name === fresh.name) : -1;
-      if (fresh) transmission(fresh);
-      if (freshIndex >= 0) { // a new arrival: fly to it and splash, but let the person decide to open it
-        select(freshIndex, true, false);
-        city.celebrate(freshIndex);
-      } else { // keep the bottom strip on the same file without moving the camera
+      if (fresh.length > 0) {
+        unreadIncomingCount += fresh.length;
+        updateIncomingBadge();
+        transmission(fresh);
+        const freshIndex = murals.findIndex((m) => m.file.name === fresh[0].name);
+        if (freshIndex >= 0) {
+          select(freshIndex, true, false);
+          city.celebrate(freshIndex);
+        }
+      } else {
         const keepIndex = murals.findIndex((m) => m.file.name === keep);
         selected = keepIndex >= 0 ? keepIndex : (murals.length ? 0 : -1);
         updateNav();
@@ -1282,9 +1286,42 @@ async function refresh() {
   pollTimer = setTimeout(refresh, POLL_MS);
 }
 
-/** A file that showed up since the last poll and did not come from this device. */
-function arrival(files) {
-  const fresh = knownFiles ? files.find((f) => !knownFiles.has(f.name) && !f.mine) : null;
+let unreadIncomingCount = 0;
+function updateIncomingBadge() {
+  const badge = $('#inboxBadge');
+  if (!badge) return;
+  if (unreadIncomingCount > 0) {
+    badge.textContent = unreadIncomingCount > 99 ? '99+' : unreadIncomingCount;
+    badge.hidden = false;
+  } else {
+    badge.hidden = true;
+  }
+}
+function clearIncomingBadge() {
+  unreadIncomingCount = 0;
+  updateIncomingBadge();
+}
+
+async function receiveAllFiles(list) {
+  if (!list || !list.length) return;
+  const box = $('#transmission');
+  if (box) box.hidden = true;
+  toast(`Receiving ${list.length} ${list.length === 1 ? 'file' : 'files'}…`);
+  for (let i = 0; i < list.length; i++) {
+    const a = document.createElement('a');
+    a.href = saveUrl(list[i].name);
+    a.download = list[i].name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    if (i < list.length - 1) await new Promise((r) => setTimeout(r, 220));
+  }
+  toast(`All ${list.length} files saved!`);
+}
+
+/** Files that showed up since the last poll and did not come from this device. */
+function arrivals(files) {
+  const fresh = knownFiles ? files.filter((f) => !knownFiles.has(f.name) && !f.mine) : [];
   knownFiles = new Set(files.map((f) => f.name));
   return fresh;
 }
@@ -1301,98 +1338,179 @@ const TEXT_EXT = new Set(['txt', 'md', 'json', 'js', 'html', 'css', 'csv', 'xml'
 const VIDEO_EXT = new Set(['mp4', 'webm', 'ogg', 'mov']);
 const AUDIO_EXT = new Set(['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac']);
 
-async function showFilePreview(file) {
+async function showFilePreview(filesOrFile, initialIdx = 0) {
   const modal = $('#sheet-preview');
   const stage = $('#previewStage');
   const title = $('#preview-title');
   const meta = $('#previewMeta');
   const save = $('#previewSaveBtn');
   const cityBtn = $('#previewCityBtn');
+  const prevBtn = $('#previewPrevBtn');
+  const nextBtn = $('#previewNextBtn');
+  const counter = $('#previewCounter');
+  const receiveAll = $('#previewReceiveAllBtn');
   if (!modal || !stage) return;
 
-  title.textContent = file.name;
-  meta.textContent = `${route(file)} · ${humanSize(file.size)}${file.at ? ' · ' + timeAgo(file.at) : ''}`;
-  save.href = saveUrl(file.name);
-  save.download = file.name;
+  const list = Array.isArray(filesOrFile) ? filesOrFile : [filesOrFile];
+  let currentIdx = Math.max(0, Math.min(initialIdx, list.length - 1));
 
-  const muralIdx = city.murals().findIndex((m) => m.file.name === file.name);
-  if (cityBtn) {
-    cityBtn.hidden = muralIdx < 0;
-    cityBtn.onclick = () => {
-      modal.close();
-      select(muralIdx, true, true);
-    };
-  }
+  function renderItem(idx) {
+    currentIdx = idx;
+    const file = list[idx];
+    if (!file) return;
 
-  const ext = extOf(file.name);
-  stage.replaceChildren();
+    title.textContent = list.length > 1 ? `${file.name} (${idx + 1} of ${list.length})` : file.name;
+    meta.textContent = `${route(file)} · ${humanSize(file.size)}${file.at ? ' · ' + timeAgo(file.at) : ''}`;
+    save.href = saveUrl(file.name);
+    save.download = file.name;
 
-  if (isImage(file)) {
-    const img = el('img', { src: fileUrl(file.name), alt: file.name });
-    stage.append(img);
-  } else if (VIDEO_EXT.has(ext)) {
-    const video = el('video', { src: fileUrl(file.name), controls: true, autoplay: true });
-    stage.append(video);
-  } else if (AUDIO_EXT.has(ext)) {
-    const audio = el('audio', { src: fileUrl(file.name), controls: true, autoplay: true });
-    stage.append(audio);
-  } else if (ext === 'pdf') {
-    const iframe = el('iframe', { src: fileUrl(file.name) });
-    stage.append(iframe);
-  } else if (TEXT_EXT.has(ext) && file.size < 2 * 1024 * 1024) {
-    const pre = el('pre', { textContent: 'Loading preview…' });
-    stage.append(pre);
-    try {
-      const res = await fetch(fileUrl(file.name));
-      if (res.ok) {
-        const text = await res.text();
-        pre.textContent = text.slice(0, 100000);
-      } else {
-        pre.textContent = 'Could not load text preview.';
-      }
-    } catch {
-      pre.textContent = 'Could not load text preview.';
+    const muralIdx = city.murals().findIndex((m) => m.file.name === file.name);
+    if (cityBtn) {
+      cityBtn.hidden = muralIdx < 0;
+      cityBtn.onclick = () => {
+        modal.close();
+        select(muralIdx, true, true);
+      };
     }
-  } else {
-    const badge = el('span', { className: 'badge' });
-    badge.style.backgroundColor = colorFor(file.name);
-    badge.textContent = (ext || 'file').toUpperCase().slice(0, 4);
-    stage.append(el('div', { className: 'preview-generic' }, badge, el('span', { textContent: file.name })));
+
+    if (list.length > 1) {
+      if (prevBtn) {
+        prevBtn.hidden = false;
+        prevBtn.disabled = idx === 0;
+        prevBtn.onclick = () => renderItem(idx - 1);
+      }
+      if (nextBtn) {
+        nextBtn.hidden = false;
+        nextBtn.disabled = idx === list.length - 1;
+        nextBtn.onclick = () => renderItem(idx + 1);
+      }
+      if (counter) {
+        counter.hidden = false;
+        counter.textContent = `${idx + 1} / ${list.length}`;
+      }
+      if (receiveAll) {
+        receiveAll.hidden = false;
+        receiveAll.textContent = `Receive all (${list.length})`;
+        receiveAll.onclick = () => {
+          modal.close();
+          receiveAllFiles(list);
+        };
+      }
+    } else {
+      if (prevBtn) prevBtn.hidden = true;
+      if (nextBtn) nextBtn.hidden = true;
+      if (counter) counter.hidden = true;
+      if (receiveAll) receiveAll.hidden = true;
+    }
+
+    const ext = extOf(file.name);
+    stage.replaceChildren();
+
+    if (isImage(file)) {
+      const img = el('img', { src: fileUrl(file.name), alt: file.name });
+      stage.append(img);
+    } else if (VIDEO_EXT.has(ext)) {
+      const video = el('video', { src: fileUrl(file.name), controls: true, autoplay: true });
+      stage.append(video);
+    } else if (AUDIO_EXT.has(ext)) {
+      const audio = el('audio', { src: fileUrl(file.name), controls: true, autoplay: true });
+      stage.append(audio);
+    } else if (ext === 'pdf') {
+      const iframe = el('iframe', { src: fileUrl(file.name) });
+      stage.append(iframe);
+    } else if (TEXT_EXT.has(ext) && file.size < 2 * 1024 * 1024) {
+      const pre = el('pre', { textContent: 'Loading preview…' });
+      stage.append(pre);
+      fetch(fileUrl(file.name)).then((r) => r.ok ? r.text() : 'Could not load text preview.')
+        .then((t) => { pre.textContent = t.slice(0, 100000); })
+        .catch(() => { pre.textContent = 'Could not load text preview.'; });
+    } else {
+      const badge = el('span', { className: 'badge' });
+      badge.style.backgroundColor = colorFor(file.name);
+      badge.textContent = (ext || 'file').toUpperCase().slice(0, 4);
+      stage.append(el('div', { className: 'preview-generic' }, badge, el('span', { textContent: file.name })));
+    }
   }
 
+  renderItem(currentIdx);
   if (!modal.open) modal.showModal();
 }
 
 let txTimer = 0;
-function transmission(file, message) {
+function transmission(filesOrFile, message) {
   const box = $('#transmission');
   const open = $('#txOpen');
   const copy = $('#txCopy');
   const preview = $('#txPreview');
-  notify(file ? `${file.name}` : `Message from ${message.from}`, file ? `From ${file.from}, ${humanSize(file.size)}` : message.text, file ? 'file' : 'message');
-  if (file) {
-    $('#txBody').textContent = `${file.name} from ${file.from}`;
-    open.href = saveUrl(file.name);
-    open.download = file.name;
-    if (preview) {
-      preview.hidden = false;
-      preview.onclick = () => {
-        box.hidden = true;
-        showFilePreview(file);
-      };
+  const receiveAll = $('#txReceiveAll');
+  const badge = $('#txBadge');
+  const title = $('#txTitle');
+  const body = $('#txBody');
+
+  if (filesOrFile) {
+    const files = Array.isArray(filesOrFile) ? filesOrFile : [filesOrFile];
+    const count = files.length;
+    const totalSize = files.reduce((s, f) => s + (f.size || 0), 0);
+
+    if (count === 1) {
+      const file = files[0];
+      notify(`${file.name}`, `From ${file.from}, ${humanSize(file.size)}`, 'file');
+      title.textContent = 'Incoming transmission';
+      if (badge) badge.hidden = true;
+      body.textContent = `${file.name} from ${file.from} (${humanSize(file.size)})`;
+      open.hidden = false;
+      open.href = saveUrl(file.name);
+      open.download = file.name;
+      open.textContent = 'Save';
+      if (receiveAll) receiveAll.hidden = true;
+      if (preview) {
+        preview.hidden = false;
+        preview.onclick = () => {
+          box.hidden = true;
+          showFilePreview(file);
+        };
+      }
+    } else {
+      notify(`${count} incoming files`, `From ${files[0].from}, ${humanSize(totalSize)} total`, 'file');
+      title.textContent = `Incoming transmission · ${count} files`;
+      if (badge) {
+        badge.textContent = `${count} files`;
+        badge.hidden = false;
+      }
+      const sampleNames = files.map((f) => f.name).slice(0, 3).join(', ') + (count > 3 ? ` +${count - 3} more` : '');
+      body.textContent = `${count} files from ${files[0].from} (${humanSize(totalSize)}): ${sampleNames}`;
+      open.hidden = true;
+      if (receiveAll) {
+        receiveAll.hidden = false;
+        receiveAll.textContent = `Receive all (${count})`;
+        receiveAll.onclick = () => receiveAllFiles(files);
+      }
+      if (preview) {
+        preview.hidden = false;
+        preview.onclick = () => {
+          box.hidden = true;
+          showFilePreview(files);
+        };
+      }
     }
+    copy.hidden = true;
+    box.hidden = false;
+    clearTimeout(txTimer);
+    txTimer = setTimeout(() => { box.hidden = true; }, count > 1 ? 14000 : 8000);
   } else {
-    $('#txBody').textContent = `"${message.text}" from ${message.from}`;
+    notify(`Message from ${message.from}`, message.text, 'message');
+    title.textContent = message.private ? 'Private message' : 'Incoming transmission';
+    if (badge) badge.hidden = true;
+    body.textContent = `"${message.text}" from ${message.from}`;
     copy.onclick = () => copyText(message.text);
-    $('#txTitle').textContent = message.private ? 'Private message' : 'Incoming transmission';
+    copy.hidden = false;
+    open.hidden = true;
+    if (receiveAll) receiveAll.hidden = true;
     if (preview) preview.hidden = true;
+    box.hidden = false;
+    clearTimeout(txTimer);
+    txTimer = setTimeout(() => { box.hidden = true; }, 12000);
   }
-  if (file) $('#txTitle').textContent = 'Incoming transmission';
-  open.hidden = !file;
-  copy.hidden = !!file;
-  box.hidden = false;
-  clearTimeout(txTimer);
-  txTimer = setTimeout(() => { box.hidden = true; }, file ? 8000 : 12000);
 }
 
 async function copyText(text) {
@@ -2306,19 +2424,12 @@ $('#downloadAll')?.addEventListener('click', async () => {
   const allFiles = state.files || [];
   const filtered = allFiles.filter((f) => !query || f.name.toLowerCase().includes(query) || (extOf(f.name) || '').includes(query));
   if (!filtered.length) return;
-  toast(`Downloading ${filtered.length} ${filtered.length === 1 ? 'file' : 'files'}…`);
-  for (let i = 0; i < filtered.length; i++) {
-    const a = document.createElement('a');
-    a.href = saveUrl(filtered[i].name);
-    a.download = filtered[i].name;
-    document.body.append(a);
-    a.click();
-    a.remove();
-    if (i < filtered.length - 1) await new Promise((r) => setTimeout(r, 200));
-  }
+  await receiveAllFiles(filtered);
 });
+$('#inboxBtn')?.addEventListener('click', clearIncomingBadge);
 
 function openSheet(name) {
+  if (name === 'inbox') clearIncomingBadge();
   renderSheets();
   const d = document.getElementById('sheet-' + name);
   if (!d.open) d.showModal();
@@ -2351,6 +2462,8 @@ function renderSheets() {
 
   const toolbar = $('#inboxToolbar');
   if (toolbar) toolbar.hidden = allFiles.length === 0;
+  const dlAll = $('#downloadAll');
+  if (dlAll) dlAll.textContent = filtered.length > 1 ? `Receive all (${filtered.length})` : 'Receive all';
 
   fileList.replaceChildren(...filtered.map((f) => {
     const badge = el('span', { className: 'badge' });
