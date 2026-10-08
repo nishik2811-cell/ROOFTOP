@@ -928,22 +928,27 @@ body.intro-on { overflow: hidden; }
 
 /* ---------- after the city opens ---------- */
 
-/* a ring cursor over the city, like a viewfinder; it widens over a file */
+/* Precision radar reticle crosshair cursor over the city */
 @media (pointer: fine) {
   #city { cursor: none; }
+  #city:active { cursor: none; }
 }
 .ring {
   position: fixed;
-  left: -22px;
-  top: -22px;
+  left: 0;
+  top: 0;
   z-index: 50;
-  width: 44px;
-  height: 44px;
-  border: 1.5px solid var(--chalk);
+  width: 38px;
+  height: 38px;
+  margin-left: -19px;
+  margin-top: -19px;
+  border: 1.5px solid rgba(255, 255, 255, 0.72);
   border-radius: 50%;
-  box-shadow: 0 0 0 1px rgb(23 22 21 / 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 8px rgba(63, 214, 224, 0.25);
   pointer-events: none;
-  transition: width 0.25s var(--ease), height 0.25s var(--ease), left 0.25s var(--ease), top 0.25s var(--ease), background-color 0.25s;
+  transform: translate3d(-999px, -999px, 0);
+  will-change: transform;
+  transition: width 0.18s var(--ease), height 0.18s var(--ease), margin 0.18s var(--ease), border-color 0.18s, box-shadow 0.18s, background-color 0.18s;
 }
 .ring::after {
   content: "";
@@ -955,8 +960,66 @@ body.intro-on { overflow: hidden; }
   margin: -2px 0 0 -2px;
   border-radius: 50%;
   background: var(--chalk);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  transition: transform 0.18s var(--ease), background-color 0.18s;
 }
-.ring.hot { left: -34px; top: -34px; width: 68px; height: 68px; background: rgb(242 238 230 / 0.12); }
+.ring::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  background:
+    linear-gradient(var(--chalk), var(--chalk)) top center / 1.5px 5px no-repeat,
+    linear-gradient(var(--chalk), var(--chalk)) bottom center / 1.5px 5px no-repeat,
+    linear-gradient(var(--chalk), var(--chalk)) left center / 5px 1.5px no-repeat,
+    linear-gradient(var(--chalk), var(--chalk)) right center / 5px 1.5px no-repeat;
+  pointer-events: none;
+  transition: opacity 0.18s, transform 0.18s var(--ease);
+}
+.ring.hot {
+  width: 52px;
+  height: 52px;
+  margin-left: -26px;
+  margin-top: -26px;
+  border-color: #3fd6e0;
+  background: rgba(63, 214, 224, 0.12);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 14px rgba(63, 214, 224, 0.5);
+  animation: radar-lock-pulse 1.4s ease-in-out infinite;
+}
+.ring.hot::after {
+  background: #3fd6e0;
+  box-shadow: 0 0 6px #3fd6e0;
+  transform: scale(1.3);
+}
+.ring.hot::before {
+  inset: -7px;
+  background:
+    linear-gradient(#3fd6e0, #3fd6e0) top center / 2px 7px no-repeat,
+    linear-gradient(#3fd6e0, #3fd6e0) bottom center / 2px 7px no-repeat,
+    linear-gradient(#3fd6e0, #3fd6e0) left center / 7px 2px no-repeat,
+    linear-gradient(#3fd6e0, #3fd6e0) right center / 7px 2px no-repeat;
+}
+.ring.grabbing {
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  margin-top: -11px;
+  border-color: var(--accent);
+  background: rgba(242, 182, 50, 0.25);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 10px rgba(242, 182, 50, 0.4);
+}
+.ring.grabbing::after {
+  background: var(--accent);
+  transform: scale(1.1);
+}
+.ring.grabbing::before {
+  opacity: 0.35;
+  transform: scale(0.85);
+}
+@keyframes radar-lock-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 10px rgba(63, 214, 224, 0.35); }
+  50% { box-shadow: 0 0 0 1.5px #3fd6e0, 0 0 18px rgba(63, 214, 224, 0.65); }
+}
 @media (pointer: coarse) { .ring { display: none; } }
 
 /* hover preview */

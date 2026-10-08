@@ -1006,6 +1006,10 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     } else {
       drag = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, moved: false, lx: e.clientX, ly: e.clientY };
     }
+    if (e.pointerType === 'mouse') {
+      const rect = canvas.getBoundingClientRect();
+      onHover(-1, e.clientX - rect.left, e.clientY - rect.top, true);
+    }
   });
   canvas.addEventListener('pointermove', (e) => {
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, [e.clientX, e.clientY]);
@@ -1027,6 +1031,10 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
         clamp();
         requestDraw();
       }
+      if (e.pointerType === 'mouse') {
+        const rect = canvas.getBoundingClientRect();
+        onHover(-1, e.clientX - rect.left, e.clientY - rect.top, true);
+      }
       return;
     }
     if (e.pointerType === 'mouse') { // hover: name the file under the cursor
@@ -1034,7 +1042,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       const hit = murals.findIndex((m) => inside(w, m.poly) || Math.hypot(w[0] - m.center[0], w[1] - m.center[1]) < 14 / cam.z);
       if (hit !== hovered) { hovered = hit; requestDraw(); }
       const rect = canvas.getBoundingClientRect();
-      onHover(hit, e.clientX - rect.left, e.clientY - rect.top);
+      onHover(hit, e.clientX - rect.left, e.clientY - rect.top, false);
     }
   });
   const release = (e) => {
@@ -1046,6 +1054,10 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       if (hit >= 0) onSelect(hit);
     }
     drag = null;
+    if (e.pointerType === 'mouse') {
+      const rect = canvas.getBoundingClientRect();
+      onHover(-1, e.clientX - rect.left, e.clientY - rect.top, false);
+    }
   };
   canvas.addEventListener('pointerup', release);
   canvas.addEventListener('pointercancel', release);
@@ -1309,16 +1321,17 @@ function paintThumb(el, f) {
   el.textContent = isImage(f) ? '' : (extOf(f.name) || 'file').toUpperCase().slice(0, 4);
 }
 
-function hover(index, x, y) {
+function hover(index, x, y, isGrabbing = false) {
   const ring = $('#ring');
   const peek = $('#peek');
   if (index === -2) { ring.hidden = true; peek.hidden = true; return; }
   const rect = $('#city').getBoundingClientRect();
   ring.hidden = false;
-  ring.style.transform = `translate(${rect.left + x}px, ${rect.top + y}px)`;
-  ring.classList.toggle('hot', index >= 0);
-  const m = city.murals()[index];
-  if (!m) { peek.hidden = true; return; }
+  ring.style.transform = `translate3d(${rect.left + x}px, ${rect.top + y}px, 0)`;
+  ring.classList.toggle('hot', index >= 0 && !isGrabbing);
+  ring.classList.toggle('grabbing', isGrabbing);
+  const m = index >= 0 ? city.murals()[index] : null;
+  if (!m || isGrabbing) { peek.hidden = true; return; }
   paintThumb($('#peekThumb'), m.file);
   $('#peekName').textContent = m.file.name;
   $('#peekMeta').textContent = `${route(m.file)}, ${humanSize(m.file.size)}`;
