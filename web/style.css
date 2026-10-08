@@ -333,7 +333,7 @@ a.caption[href]:hover { color: var(--accent); }
   left: 22px;
   bottom: calc(max(18px, env(safe-area-inset-bottom)) + var(--pill-h) + 18px);
   z-index: 2;
-  width: min(300px, calc(100% - 44px));
+  width: min(340px, calc(100% - 44px));
   padding: 14px 16px 14px;
   border-radius: 18px;
   background: var(--ink);
@@ -341,18 +341,36 @@ a.caption[href]:hover { color: var(--accent); }
   box-shadow: 4px 4px 0 var(--pink), 8px 8px 0 var(--accent);
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 4px 14px;
+  gap: 6px 14px;
   align-items: end;
   animation: tx-in 0.5s var(--ease);
 }
 
-.tx-title {
+.tx-header {
   grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tx-title {
   margin: 0;
   color: var(--accent);
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.tx-badge {
+  background: var(--accent);
+  color: var(--ink);
+  font: 700 10px var(--mono);
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  flex: none;
 }
 
 .tx-body {
@@ -388,6 +406,29 @@ a.caption[href]:hover { color: var(--accent); }
   background: var(--ink-line);
   color: var(--accent);
   border-color: var(--accent);
+}
+.tx-receive-all {
+  background: var(--accent);
+  color: var(--ink);
+  font-weight: 700;
+}
+.tx-receive-all:hover {
+  background: #ffcf73;
+}
+
+.inbox-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--ink);
+  font: 700 10px var(--mono);
+  margin-left: 6px;
+  line-height: 1;
 }
 
 .sheet-preview {
@@ -473,6 +514,15 @@ a.caption[href]:hover { color: var(--accent); }
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.preview-nav-btn {
+  padding: 0 8px;
+  min-width: 32px;
+  height: 32px;
+}
+.preview-counter {
+  font: 600 11px var(--mono);
+  color: var(--chalk-dim);
 }
 
 @keyframes tx-in {

@@ -88,7 +88,7 @@
           <span id="sendLabel">Send files</span>
           <input type="file" id="picker" multiple class="sr-only">
         </label>
-        <button class="pill" type="button" data-sheet="inbox">Inbox</button>
+        <button class="pill" type="button" data-sheet="inbox" id="inboxBtn">Inbox<span class="inbox-badge" id="inboxBadge" hidden></span></button>
       </div>
       <div class="joined">
         <button class="round" type="button" data-sheet="notes" id="chatBtn" aria-label="Chat"><svg class="i"><use href="#i-chat"/></svg><span class="dot" id="chatDot" hidden></span></button>
@@ -111,11 +111,15 @@
     </aside>
 
     <aside class="transmission" id="transmission" role="status" aria-live="polite" hidden>
-      <p class="tx-title" id="txTitle">Incoming transmission</p>
+      <div class="tx-header">
+        <p class="tx-title" id="txTitle">Incoming transmission</p>
+        <span class="tx-badge" id="txBadge" hidden></span>
+      </div>
       <p class="tx-body" id="txBody"></p>
       <div class="tx-btns">
         <button class="tx-open tx-preview" type="button" id="txPreview" hidden>Preview</button>
         <a class="tx-open" id="txOpen" download>Save</a>
+        <button class="tx-open tx-receive-all" type="button" id="txReceiveAll" hidden>Receive all</button>
         <button class="tx-open" type="button" id="txCopy" hidden>Copy</button>
       </div>
     </aside>
@@ -329,7 +333,11 @@
     <div class="preview-footer">
       <div class="preview-meta" id="previewMeta"></div>
       <div class="preview-actions">
+        <button class="btn btn-small preview-nav-btn" type="button" id="previewPrevBtn" hidden aria-label="Previous file"><svg class="i"><use href="#i-left"/></svg></button>
+        <span class="preview-counter" id="previewCounter" hidden></span>
+        <button class="btn btn-small preview-nav-btn" type="button" id="previewNextBtn" hidden aria-label="Next file"><svg class="i"><use href="#i-right"/></svg></button>
         <button class="btn btn-small" type="button" id="previewCityBtn">View in city</button>
+        <button class="btn btn-small" type="button" id="previewReceiveAllBtn" hidden>Receive all</button>
         <a class="btn btn-small btn-primary" id="previewSaveBtn" download>Save file</a>
       </div>
     </div>
