@@ -1023,22 +1023,23 @@ body.intro-on { overflow: hidden; }
 
 .intro-mark {
   position: absolute;
-  left: 8vw;
-  right: 8vw;
-  bottom: calc(21vh + 2.2vh);
+  left: 6vw;
+  right: 6vw;
+  bottom: calc(21vh + 2.5vh);
   margin: 0;
-  padding: 8px 20px;
+  padding: 8px 16px;
   box-sizing: border-box;
   text-align: center;
   color: #f24b37;
   font-family: "Shoulders", Impact, "Arial Black", sans-serif;
   font-weight: 800;
   font-style: italic;
-  font-size: clamp(38px, 9vw, 110px);
-  line-height: 1.05;
+  font-size: clamp(64px, 15vw, 165px);
+  line-height: 1;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  -webkit-text-stroke: clamp(1.2px, 0.22vw, 2.5px) #151311;
+  white-space: nowrap;
+  -webkit-text-stroke: clamp(1.4px, 0.24vw, 2.8px) #151311;
   text-shadow:
     -5px -4px 0 #00a8e8,
     -4px -3px 0 #00a8e8,
@@ -1067,7 +1068,7 @@ body.intro-on { overflow: hidden; }
   align-items: center;
   padding: 0 4vw;
   transform: translateY(-50%);
-  font: 800 min(16vh, 6.4vw)/0.86 "Shoulders", Impact, "Arial Narrow", sans-serif;
+  font: 800 min(18vh, 7.5vw)/0.86 "Shoulders", Impact, "Arial Narrow", sans-serif;
   text-transform: uppercase;
   pointer-events: none;
 }
@@ -1117,11 +1118,11 @@ body.intro-on { overflow: hidden; }
   body.intro-on.intro-s3 .stage { clip-path: inset(40vh 8vw calc(100% - 53vh) 8vw round 999px); }
   .intro.s2 .intro-window { top: 6vh; left: 5vw; width: 90vw; height: 68vh; }
   .intro.s3 .intro-window { top: 40vh; left: 8vw; width: 84vw; height: 13vh; }
-  .intro-title { flex-direction: column; gap: 17vh; top: 46.5vh; font-size: 17vw; }
+  .intro-title { flex-direction: column; gap: 17vh; top: 46.5vh; font-size: 19vw; }
   .intro-corner { display: none; }
   .intro-enter { top: 62vh; }
   .intro-line { bottom: 5vh; padding: 0 20px; }
-  .intro-mark { left: 5vw; right: 5vw; bottom: calc(26vh + 1.8vh); font-size: clamp(32px, 11vw, 64px); }
+  .intro-mark { left: 2vw; right: 2vw; bottom: calc(26vh + 2.2vh); font-size: clamp(44px, 14.5vw, 74px); white-space: nowrap; }
 }
 
 /* ---------- after the city opens ---------- */
