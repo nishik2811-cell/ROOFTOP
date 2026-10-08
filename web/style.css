@@ -973,18 +973,18 @@ body.intro-on { overflow: hidden; }
 
 .intro-mark {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 2.2vh;
+  left: 8vw;
+  right: 8vw;
+  bottom: calc(21vh + 2.2vh);
   margin: 0;
-  padding: 0 4vw;
+  padding: 8px 20px;
   box-sizing: border-box;
   text-align: center;
   color: #f24b37;
   font-family: "Shoulders", Impact, "Arial Black", sans-serif;
   font-weight: 800;
   font-style: italic;
-  font-size: clamp(42px, 13vw, 126px);
+  font-size: clamp(38px, 9vw, 110px);
   line-height: 1.05;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -997,8 +997,8 @@ body.intro-on { overflow: hidden; }
     2px 2px 0 #151311,
     3px 3px 0 #151311,
     4px 5px 0 #151311,
-    0 10px 28px rgba(0, 0, 0, 0.65);
-  transition: opacity 0.6s, transform 1.1s var(--ease);
+    0 10px 28px rgba(0, 0, 0, 0.75);
+  transition: opacity 0.6s, transform 1.1s var(--ease), bottom 1.3s var(--ease);
   pointer-events: none;
   z-index: 2;
 }
@@ -1071,6 +1071,7 @@ body.intro-on { overflow: hidden; }
   .intro-corner { display: none; }
   .intro-enter { top: 62vh; }
   .intro-line { bottom: 5vh; padding: 0 20px; }
+  .intro-mark { left: 5vw; right: 5vw; bottom: calc(26vh + 1.8vh); font-size: clamp(32px, 11vw, 64px); }
 }
 
 /* ---------- after the city opens ---------- */
@@ -1319,14 +1320,22 @@ body.intro-on { overflow: hidden; }
 /* credits under the city on the main page */
 .credits {
   margin: 0;
-  padding: 16px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
   text-align: center;
-  font: 600 clamp(12px, 1.3vw, 15px) var(--mono);
-  letter-spacing: 0.12em;
+  font: 600 clamp(10.5px, 1.1vw, 13px) var(--mono);
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--page-text);
-  opacity: 0.8;
+  opacity: 0.85;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 8px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
+.credits-by { white-space: nowrap; }
 .credits b { color: #b8462e; font-weight: 700; }
 body.intro-on .credits { visibility: hidden; }
 
