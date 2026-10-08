@@ -106,10 +106,20 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
   const MONO = 'ui-monospace, Menlo, Consolas, monospace';
 
-  // Golden hour by day, indigo and neon by night. Facades are pastel stucco; roofs are flat tiles.
+  // Day-night cycle: dawn (morning glow), day (golden hour), dusk (sunset glow), night (indigo and neon).
   const PALETTES = {
+    dawn: {
+      skyTop: '#455e8c', skyLow: '#fca384', sun: 'rgba(255,230,180,0.95)', sunPos: [0.32, 45], sunRadius: 40, haze: 'rgba(255,185,150,0.5)',
+      ground: '#debfa2', speck: 'rgba(120,80,50,0.16)', road: '#8f8380', lane: 'rgba(255,245,220,0.7)',
+      lawn: '#b2d495', plaza: '#e2ba96', tile: 'rgba(180,95,60,0.28)', water: '#42a7a5', ripple: 'rgba(255,255,255,0.5)',
+      facades: ['#f29f92', '#f6cb85', '#9fd4c5', '#bbb3e5', '#f4e7d7', '#e79475'],
+      shade: 0.80, roofA: '#be5f3a', roofB: '#636e82', window: '#354856', shutters: ['#2b8a7e', '#3668a6', '#bc4236'],
+      lit: null, ink: '#332321', tank: '#825338', leaf: '#3b864f', leafDark: '#266539', bloom: '#eb629e',
+      board: '#282120', bulb: null,
+      seaFar: '#338aa4', seaNear: '#5ec2bd', sand: '#ebd4a8', wetSand: '#cfae7e', foam: 'rgba(255,255,255,0.85)', sail: '#fbf3e6',
+    },
     day: {
-      skyTop: '#ef7e6c', skyLow: '#ffd9a2', sun: 'rgba(255,244,214,0.9)', haze: 'rgba(255,222,190,0.6)',
+      skyTop: '#ef7e6c', skyLow: '#ffd9a2', sun: 'rgba(255,244,214,0.9)', sunPos: [0.72, 70], sunRadius: 46, haze: 'rgba(255,222,190,0.6)',
       ground: '#e8d2ad', speck: 'rgba(150,100,60,0.18)', road: '#9a8c84', lane: 'rgba(255,248,230,0.75)',
       lawn: '#cfe0a6', plaza: '#f0c9a0', tile: 'rgba(196,110,70,0.35)', water: '#4fb0ad', ripple: 'rgba(255,255,255,0.45)',
       facades: ['#f4a99a', '#f6d28b', '#a4d6c9', '#c4bdeb', '#f6ece0', '#ec9a76'],
@@ -118,8 +128,18 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       board: '#2a2422', bulb: null,
       seaFar: '#3d93ad', seaNear: '#6cc6c1', sand: '#f2dcae', wetSand: '#d8b986', foam: 'rgba(255,255,255,0.85)', sail: '#fbf3e6',
     },
+    dusk: {
+      skyTop: '#3a1f4d', skyLow: '#ea5f38', sun: 'rgba(255,130,60,0.92)', sunPos: [0.65, 32], sunRadius: 52, haze: 'rgba(230,90,55,0.5)',
+      ground: '#825c68', speck: 'rgba(50,25,35,0.22)', road: '#564653', lane: 'rgba(255,195,145,0.55)',
+      lawn: '#526645', plaza: '#865761', tile: 'rgba(60,25,35,0.35)', water: '#2c5972', ripple: 'rgba(255,175,110,0.45)',
+      facades: ['#a85c63', '#b57452', '#5b8285', '#725e89', '#9d7b78', '#a45244'],
+      shade: 0.77, roofA: '#6e342b', roofB: '#3e4458', window: '#222137', shutters: ['#265c58', '#2e4977', '#7c2c27'],
+      lit: '#ffb347', ink: '#20131e', tank: '#5a3429', leaf: '#295738', leafDark: '#193c25', bloom: '#b84478',
+      board: '#1c121b', bulb: '#ffd07a',
+      seaFar: '#1d3b5a', seaNear: '#336f83', sand: '#7e5a64', wetSand: '#62414a', foam: 'rgba(255,185,135,0.65)', sail: '#e5d3c8',
+    },
     night: {
-      skyTop: '#160f38', skyLow: '#5a2a6e', sun: null, haze: 'rgba(120,60,140,0.4)',
+      skyTop: '#160f38', skyLow: '#5a2a6e', sun: null, moon: true, haze: 'rgba(120,60,140,0.4)',
       ground: '#2c2440', speck: 'rgba(0,0,0,0.25)', road: '#1f1a2e', lane: 'rgba(255,214,140,0.4)',
       lawn: '#25402f', plaza: '#3a2f52', tile: 'rgba(0,0,0,0.25)', water: '#1f3f5c', ripple: 'rgba(255,220,160,0.35)',
       facades: ['#6a4a63', '#6e5a48', '#3f5a5f', '#4c4870', '#5d5662', '#6a4436'],
@@ -243,6 +263,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   const people = Array.from({ length: 30 }, () => ({ x: PLAZA.x0 + 1.5 + life() * (PLAZA.x1 - PLAZA.x0 - 3), z: PLAZA.z0 + 1.5 + life() * (PLAZA.z1 - PLAZA.z0 - 3), a: life() * 6.28, color: CAR_COLORS[Math.floor(life() * 6)] }));
 
   /* ---- state ---- */
+  let currentEnv = 'day';
   let night = false;
   let files = [];
   let assigned = new Map(); // building or board -> file
@@ -302,13 +323,21 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     c.fillStyle = sky;
     c.fillRect(x0, view.y0 - 60, w, horizon - view.y0 + 140);
     if (p.sun) {
-      const [sx, sy] = [view.x0 + W * 0.72, horizon - 70];
+      const [sx, sy] = p.sunPos ? [view.x0 + W * p.sunPos[0], horizon - p.sunPos[1]] : [view.x0 + W * 0.72, horizon - 70];
+      const rSun = p.sunRadius || 46;
       c.fillStyle = p.sun;
-      c.beginPath(); c.arc(sx, sy, 46, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(sx, sy, rSun, 0, Math.PI * 2); c.fill();
     } else {
       for (let i = 0; i < 120; i++) {
         c.fillStyle = `rgba(255,248,230,${0.3 + r() * 0.7})`;
         c.fillRect(x0 + r() * w, view.y0 - 40 + r() * (horizon - view.y0), 1.5, 1.5);
+      }
+      if (p.moon) {
+        const [mx, my] = [view.x0 + W * 0.78, horizon - 88];
+        c.fillStyle = 'rgba(255,246,215,0.92)';
+        c.beginPath(); c.arc(mx, my, 22, 0, Math.PI * 2); c.fill();
+        c.fillStyle = p.skyTop;
+        c.beginPath(); c.arc(mx + 8, my - 4, 18, 0, Math.PI * 2); c.fill();
       }
     }
     // a distant skyline cut-out along the horizon, across the water
@@ -392,7 +421,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     }
     c.globalAlpha = 1;
     if (p.sun) { // the sun's path on the water
-      const sx = view.x0 + W * 0.72;
+      const sx = p.sunPos ? view.x0 + W * p.sunPos[0] : view.x0 + W * 0.72;
       c.fillStyle = p.sun;
       for (let y = seaTop + 2; y < shoreY - 6; y += 4) {
         const near = (y - seaTop) / (shoreY - seaTop), half = 30 - near * 14 + (r() - 0.5) * 16;
@@ -648,7 +677,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
 
   function render() {
     if (!cssW) return;
-    const p = night ? PALETTES.night : PALETTES.day;
+    const p = PALETTES[currentEnv] || (night ? PALETTES.night : PALETTES.day);
     world.width = Math.ceil(W * k);
     world.height = Math.ceil(H * k);
     const c = world.getContext('2d');
@@ -844,7 +873,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
 
   function drawLife(now, dt) {
     if (reduceMotion) return;
-    const p = night ? PALETTES.night : PALETTES.day;
+    const p = PALETTES[currentEnv] || (night ? PALETTES.night : PALETTES.day);
     for (const car of cars) {
       // wrap around the whole city, well outside the view, so cars never pop in or out on screen
       // and stop short of the beach: a road meets the sand at x + z = LAND
@@ -922,7 +951,8 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     const fx = along ? x - off : x, fz = along ? z : z - off;
     box(x, z, L, W, y + 0.06, y + 0.24, car.color);
     const cab = box(fx, fz, L * 0.52, W * 0.86, y + 0.24, y + 0.42, car.color);
-    ctx.fillStyle = night ? 'rgba(255,214,140,0.55)' : 'rgba(40,40,60,0.55)';
+    const isNightish = currentEnv === 'night' || currentEnv === 'dusk';
+    ctx.fillStyle = isNightish ? 'rgba(255,214,140,0.55)' : 'rgba(40,40,60,0.55)';
     ctx.beginPath(); [cab.d, cab.c, cab.c0, cab.d0].forEach(([px, py], i) => {
       const qx = px, qy = i < 2 ? py + 1 : py - 1; i ? ctx.lineTo(qx, qy) : ctx.moveTo(qx, qy);
     }); ctx.closePath(); ctx.fill();
@@ -1084,7 +1114,15 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   return {
     setFiles,
     murals: () => murals,
-    setNight(value) { night = value; render(); },
+    setEnv(mode) {
+      if (PALETTES[mode]) {
+        currentEnv = mode;
+        night = (mode === 'night');
+        render();
+      }
+    },
+    getEnv() { return currentEnv; },
+    setNight(value) { this.setEnv(value ? 'night' : 'day'); },
     select(index, animate = true) {
       selected = index;
       if (murals[index]) flyTo(murals[index].center, fit * 1.7, animate);
@@ -3185,19 +3223,90 @@ $('#pinForm').addEventListener('submit', (e) => {
   refresh();
 });
 
-/* ---- day / night ---- */
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  $('#themeBtn').setAttribute('aria-pressed', String(theme === 'dark'));
-  document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#22201d' : '#d4cbbe';
-  city.setNight(theme === 'dark');
+/* ---- day / night cycle & time of day ---- */
+const CYCLE_NAMES = {
+  dawn: 'Dawn · Morning light',
+  day: 'Day · Golden hour',
+  dusk: 'Dusk · Sunset glow',
+  night: 'Night · Starry sky & city lights',
+};
+
+const CYCLE_THEME_COLORS = {
+  dawn: '#ecd5c7',
+  day: '#ead3bf',
+  dusk: '#2e1d2c',
+  night: '#22201d',
+};
+
+function getCycleEnv(date = new Date()) {
+  const h = date.getHours() + date.getMinutes() / 60;
+  if (h >= 5 && h < 10) return 'dawn';
+  if (h >= 10 && h < 17) return 'day';
+  if (h >= 17 && h < 20.5) return 'dusk';
+  return 'night';
 }
-$('#themeBtn').addEventListener('click', () => {
-  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  local.set('rooftop-theme', next);
-  applyTheme(next);
+
+let activeCycleMode = local.get('rooftop-cycle') || 'auto'; // 'auto' | 'dawn' | 'day' | 'dusk' | 'night'
+
+function applyTheme(theme) {
+  if (theme === 'dark') applyCycle('night');
+  else if (theme === 'light') applyCycle('day');
+  else applyCycle(theme);
+}
+
+function applyCycle(mode, showNotice = false) {
+  activeCycleMode = mode;
+  local.set('rooftop-cycle', mode);
+  const isAuto = mode === 'auto';
+  const effective = isAuto ? getCycleEnv() : mode;
+  const isDark = effective === 'night' || effective === 'dusk';
+
+  document.documentElement.dataset.env = effective;
+  document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) metaTheme.content = CYCLE_THEME_COLORS[effective] || (isDark ? '#22201d' : '#ead3bf');
+
+  city.setEnv(effective);
+
+  const btn = $('#themeBtn');
+  if (btn) {
+    btn.setAttribute('aria-pressed', String(isDark));
+    const titleText = isAuto
+      ? `Time of day: ${CYCLE_NAMES[effective]} (Auto real-time clock)`
+      : `Time of day: ${CYCLE_NAMES[effective]} (Manual)`;
+    btn.title = `${titleText} — Click to switch`;
+    btn.setAttribute('aria-label', titleText);
+    const use = btn.querySelector('use');
+    if (use) use.setAttribute('href', effective === 'night' ? '#i-moon' : '#i-sun');
+  }
+
+  if (showNotice) {
+    toast(isAuto ? `Auto time of day: ${CYCLE_NAMES[effective]}` : CYCLE_NAMES[effective]);
+  }
+}
+
+const CYCLE_ORDER = ['auto', 'dawn', 'day', 'dusk', 'night'];
+$('#themeBtn')?.addEventListener('click', () => {
+  const currentIdx = CYCLE_ORDER.indexOf(activeCycleMode);
+  const nextMode = CYCLE_ORDER[(currentIdx + 1) % CYCLE_ORDER.length];
+  applyCycle(nextMode, true);
 });
-applyTheme(local.get('rooftop-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+
+// Periodic real-time clock check: when in auto mode, update if time of day rolls over
+setInterval(() => {
+  if (activeCycleMode === 'auto') {
+    const currentEffective = document.documentElement.dataset.env;
+    const nowEffective = getCycleEnv();
+    if (currentEffective !== nowEffective) {
+      applyCycle('auto', false);
+    }
+  }
+}, 30000);
+
+const savedCycle = local.get('rooftop-cycle');
+const legacyTheme = local.get('rooftop-theme');
+const initialMode = savedCycle || (legacyTheme === 'dark' ? 'night' : legacyTheme === 'light' ? 'day' : 'auto');
+applyCycle(initialMode);
 
 /* ---- start ---- */
 setTimeout(() => $('#loader')?.classList.add('done'), reduceMotion ? 0 : 1300);
