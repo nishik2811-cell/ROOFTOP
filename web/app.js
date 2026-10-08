@@ -1259,27 +1259,102 @@ function announceText(texts) { // texts are messages from other PCs (the termina
   else if (lastTextAt === null) lastTextAt = 0;
 }
 
+const TEXT_EXT = new Set(['txt', 'md', 'json', 'js', 'html', 'css', 'csv', 'xml', 'log', 'java', 'py', 'sh', 'c', 'cpp', 'rs', 'go']);
+const VIDEO_EXT = new Set(['mp4', 'webm', 'ogg', 'mov']);
+const AUDIO_EXT = new Set(['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac']);
+
+async function showFilePreview(file) {
+  const modal = $('#sheet-preview');
+  const stage = $('#previewStage');
+  const title = $('#preview-title');
+  const meta = $('#previewMeta');
+  const save = $('#previewSaveBtn');
+  const cityBtn = $('#previewCityBtn');
+  if (!modal || !stage) return;
+
+  title.textContent = file.name;
+  meta.textContent = `${route(file)} · ${humanSize(file.size)}${file.at ? ' · ' + timeAgo(file.at) : ''}`;
+  save.href = saveUrl(file.name);
+  save.download = file.name;
+
+  const muralIdx = city.murals().findIndex((m) => m.file.name === file.name);
+  if (cityBtn) {
+    cityBtn.hidden = muralIdx < 0;
+    cityBtn.onclick = () => {
+      modal.close();
+      select(muralIdx, true, true);
+    };
+  }
+
+  const ext = extOf(file.name);
+  stage.replaceChildren();
+
+  if (isImage(file)) {
+    const img = el('img', { src: fileUrl(file.name), alt: file.name });
+    stage.append(img);
+  } else if (VIDEO_EXT.has(ext)) {
+    const video = el('video', { src: fileUrl(file.name), controls: true, autoplay: true });
+    stage.append(video);
+  } else if (AUDIO_EXT.has(ext)) {
+    const audio = el('audio', { src: fileUrl(file.name), controls: true, autoplay: true });
+    stage.append(audio);
+  } else if (ext === 'pdf') {
+    const iframe = el('iframe', { src: fileUrl(file.name) });
+    stage.append(iframe);
+  } else if (TEXT_EXT.has(ext) && file.size < 2 * 1024 * 1024) {
+    const pre = el('pre', { textContent: 'Loading preview…' });
+    stage.append(pre);
+    try {
+      const res = await fetch(fileUrl(file.name));
+      if (res.ok) {
+        const text = await res.text();
+        pre.textContent = text.slice(0, 100000);
+      } else {
+        pre.textContent = 'Could not load text preview.';
+      }
+    } catch {
+      pre.textContent = 'Could not load text preview.';
+    }
+  } else {
+    const badge = el('span', { className: 'badge' });
+    badge.style.backgroundColor = colorFor(file.name);
+    badge.textContent = (ext || 'file').toUpperCase().slice(0, 4);
+    stage.append(el('div', { className: 'preview-generic' }, badge, el('span', { textContent: file.name })));
+  }
+
+  if (!modal.open) modal.showModal();
+}
+
 let txTimer = 0;
 function transmission(file, message) {
   const box = $('#transmission');
   const open = $('#txOpen');
   const copy = $('#txCopy');
+  const preview = $('#txPreview');
   notify(file ? `${file.name}` : `Message from ${message.from}`, file ? `From ${file.from}, ${humanSize(file.size)}` : message.text, file ? 'file' : 'message');
   if (file) {
     $('#txBody').textContent = `${file.name} from ${file.from}`;
     open.href = saveUrl(file.name);
     open.download = file.name;
+    if (preview) {
+      preview.hidden = false;
+      preview.onclick = () => {
+        box.hidden = true;
+        showFilePreview(file);
+      };
+    }
   } else {
     $('#txBody').textContent = `"${message.text}" from ${message.from}`;
     copy.onclick = () => copyText(message.text);
     $('#txTitle').textContent = message.private ? 'Private message' : 'Incoming transmission';
+    if (preview) preview.hidden = true;
   }
   if (file) $('#txTitle').textContent = 'Incoming transmission';
   open.hidden = !file;
   copy.hidden = !!file;
   box.hidden = false;
   clearTimeout(txTimer);
-  txTimer = setTimeout(() => { box.hidden = true; }, file ? 7000 : 12000);
+  txTimer = setTimeout(() => { box.hidden = true; }, file ? 8000 : 12000);
 }
 
 async function copyText(text) {
@@ -2244,19 +2319,11 @@ function renderSheets() {
     badge.style.backgroundColor = colorFor(f.name);
     if (isImage(f)) badge.style.backgroundImage = `url("${fileUrl(f.name)}")`;
     else badge.textContent = (extOf(f.name) || 'file').toUpperCase().slice(0, 4);
-    badge.title = 'Click to preview in city';
-    const info = el('div', { className: 'info', title: 'Click to preview in city' }, el('div', { className: 'name', textContent: f.name }),
+    badge.title = 'Click to preview';
+    const info = el('div', { className: 'info', title: 'Click to preview' }, el('div', { className: 'name', textContent: f.name }),
       el('div', { className: 'meta', textContent: `${route(f)}, ${humanSize(f.size)}, ${timeAgo(f.at)}` }));
 
-    const preview = () => {
-      const idx = city.murals().findIndex((m) => m.file.name === f.name);
-      if (idx >= 0) {
-        $('#sheet-inbox')?.close();
-        select(idx, true, true);
-      } else {
-        window.open(fileUrl(f.name), '_blank');
-      }
-    };
+    const preview = () => showFilePreview(f);
     info.addEventListener('click', preview);
     badge.addEventListener('click', preview);
 

@@ -112,8 +112,11 @@
     <aside class="transmission" id="transmission" role="status" aria-live="polite" hidden>
       <p class="tx-title" id="txTitle">Incoming transmission</p>
       <p class="tx-body" id="txBody"></p>
-      <a class="tx-open" id="txOpen" download>Save</a>
-      <button class="tx-open" type="button" id="txCopy" hidden>Copy</button>
+      <div class="tx-btns">
+        <button class="tx-open tx-preview" type="button" id="txPreview" hidden>Preview</button>
+        <a class="tx-open" id="txOpen" download>Save</a>
+        <button class="tx-open" type="button" id="txCopy" hidden>Copy</button>
+      </div>
     </aside>
 
     <aside class="transmission sealed-card" id="sealedCard" aria-live="polite" hidden>
@@ -312,6 +315,23 @@
     </div>
     <p class="qr-modal-pin">PIN <strong id="hostPinLarge">------</strong></p>
     <p class="qr-modal-url" id="hostUrlLarge"></p>
+  </div>
+</dialog>
+
+<dialog class="sheet sheet-preview" id="sheet-preview" aria-labelledby="preview-title">
+  <div class="sheet-inner preview-modal-inner">
+    <header class="sheet-head">
+      <h2 id="preview-title" class="preview-filename">File Preview</h2>
+      <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="preview-stage" id="previewStage"></div>
+    <div class="preview-footer">
+      <div class="preview-meta" id="previewMeta"></div>
+      <div class="preview-actions">
+        <button class="btn btn-small" type="button" id="previewCityBtn">View in city</button>
+        <a class="btn btn-small btn-primary" id="previewSaveBtn" download>Save file</a>
+      </div>
+    </div>
   </div>
 </dialog>
 
