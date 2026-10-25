@@ -1,0 +1,38 @@
+{
+  "id": "retro-shooter",
+  "name": "Retro Shooter",
+  "tagline": "Low-poly, chunky, 16-colour palette",
+  "figure": "human",
+  "skeleton": "humanoid",
+  "theme": {
+    "shader": "flat",
+    "outline": false,
+    "lowPoly": true,
+    "pixelSize": 4,
+    "background": "#1d2b53",
+    "palette": ["#000000", "#1d2b53", "#7e2553", "#008751", "#ab5236", "#5f574f", "#c2c3c7", "#fff1e8", "#ff004d", "#ffa300", "#ffec27", "#00e436", "#29adff", "#83769c", "#ff77a8", "#ffccaa"],
+    "snapAllColors": true,
+    "headScale": 1.1,
+    "proportions": {
+      "body.shoulderWidth": 0.15,
+      "body.muscle": 0.1,
+      "body.legLength": -0.1
+    }
+  },
+  "controls": {
+    "face.cheekbones": "hidden",
+    "face.noseBridge": "hidden",
+    "face.lipFullness": "hidden",
+    "face.browHeight": "hidden",
+    "face.foreheadWidth": "hidden"
+  },
+  "options": {
+    "armor": ["light", "heavy", "none"],
+    "helmet": ["none", "visor", "full"]
+  },
+  "mappings": [
+    { "when": { "physique": "muscular" }, "set": { "armor": "heavy" } },
+    { "when": { "vibe": "cyberpunk" }, "set": { "helmet": "visor" } }
+  ],
+  "export": "glb"
+}

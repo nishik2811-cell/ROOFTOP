@@ -1,0 +1,7 @@
+{
+  "slim":     { "body.shoulderWidth": 0.4,  "body.muscle": 0.3,  "body.bodyFat": 0.25, "body.hipWidth": 0.4,  "body.height": 0.55 },
+  "athletic": { "body.shoulderWidth": 0.62, "body.muscle": 0.65, "body.bodyFat": 0.35, "body.hipWidth": 0.48, "body.height": 0.55 },
+  "muscular": { "body.shoulderWidth": 0.8,  "body.muscle": 0.9,  "body.bodyFat": 0.4,  "body.hipWidth": 0.52, "body.height": 0.6 },
+  "stocky":   { "body.shoulderWidth": 0.7,  "body.muscle": 0.6,  "body.bodyFat": 0.7,  "body.hipWidth": 0.65, "body.height": 0.35, "body.legLength": 0.4 },
+  "curvy":    { "body.shoulderWidth": 0.45, "body.muscle": 0.4,  "body.bodyFat": 0.6,  "body.hipWidth": 0.8,  "body.height": 0.5 }
+}

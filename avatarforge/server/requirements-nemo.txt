@@ -1,0 +1,3 @@
+# Optional: NeMo Guardrails for the input safety rail (needs NVIDIA_API_KEY).
+nemoguardrails==0.11.1
+langchain-nvidia-ai-endpoints==0.3.7

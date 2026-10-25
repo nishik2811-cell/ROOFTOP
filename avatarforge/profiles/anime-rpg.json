@@ -1,0 +1,34 @@
+{
+  "id": "anime-rpg",
+  "name": "Anime RPG",
+  "tagline": "Cel shading, bold outlines, every slider",
+  "figure": "human",
+  "skeleton": "humanoid",
+  "theme": {
+    "shader": "toon",
+    "outline": true,
+    "lowPoly": false,
+    "pixelSize": 1,
+    "background": "#f3e6ff",
+    "palette": [],
+    "snapAllColors": false,
+    "headScale": 1.22,
+    "proportions": {
+      "face.eyeSize": 0.3,
+      "face.chinLength": -0.1,
+      "face.noseWidth": -0.2,
+      "body.legLength": 0.12,
+      "hair.volume": 0.15
+    }
+  },
+  "controls": {},
+  "options": {
+    "outfit": ["adventurer", "mage-robe", "school-uniform"],
+    "accessory": ["none", "headband", "earring"]
+  },
+  "mappings": [
+    { "when": { "vibe": "fantasy" }, "set": { "outfit": "mage-robe" } },
+    { "when": { "vibe": "cute" }, "set": { "face.eyeSize": 0.95 } }
+  ],
+  "export": "glb"
+}

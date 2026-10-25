@@ -1,0 +1,106 @@
+{
+  "id": "among-us-style",
+  "name": "Among Us-style",
+  "tagline": "Concept profile, not affiliated with Innersloth",
+  "figure": "bean",
+  "skeleton": "simple",
+  "theme": {
+    "shader": "toon",
+    "outline": true,
+    "lowPoly": false,
+    "pixelSize": 1,
+    "background": "#0b0f26",
+    "palette": ["#c51111", "#132ed1", "#117f2d", "#ed54ba", "#ef7d0d", "#f5f557", "#3f474e", "#d6e0f0", "#6b2fbb", "#71491e", "#38fedc", "#50ef39"],
+    "snapAllColors": false,
+    "headScale": 1,
+    "proportions": {},
+    "stars": true
+  },
+  "controls": {
+    "face": "hidden",
+    "hair": "hidden",
+    "body": "hidden",
+    "body.height": {
+      "min": 0.4,
+      "max": 0.6
+    },
+    "body.bodyFat": {
+      "min": 0.35,
+      "max": 0.65
+    },
+    "colors.skin": "hidden",
+    "colors.eyes": "hidden",
+    "colors.secondary": "hidden",
+    "colors.primary": {
+      "from": "palette"
+    }
+  },
+  "options": {
+    "hat": ["none", "cap", "crown", "spiky-hat", "flower", "beanie"],
+    "visor": ["classic", "cyan", "gold"],
+    "pet": ["none", "mini-bean", "robot"]
+  },
+  "mappings": [
+    {
+      "when": {
+        "hair.style": "spiky"
+      },
+      "set": {
+        "hat": "spiky-hat"
+      },
+      "note": "This game has no hair, so your spiky hair became a spiky hat."
+    },
+    {
+      "when": {
+        "hair.style": "curly"
+      },
+      "set": {
+        "hat": "flower"
+      },
+      "note": "No hair here, so your curls became a flower hat."
+    },
+    {
+      "when": {
+        "hair.style": "buzz"
+      },
+      "set": {
+        "hat": "beanie"
+      }
+    },
+    {
+      "when": {
+        "physique": "muscular"
+      },
+      "set": {
+        "body.height": 0.6
+      },
+      "note": "Muscular reads as a taller bean in this game."
+    },
+    {
+      "when": {
+        "vibe": "royal"
+      },
+      "set": {
+        "hat": "crown"
+      }
+    },
+    {
+      "when": {
+        "vibe": "cyberpunk"
+      },
+      "set": {
+        "visor": "cyan",
+        "pet": "robot"
+      }
+    },
+    {
+      "when": {
+        "vibe": "luxury"
+      },
+      "set": {
+        "visor": "gold"
+      }
+    }
+  ],
+  "export": "glb"
+}

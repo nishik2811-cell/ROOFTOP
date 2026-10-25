@@ -1,0 +1,28 @@
+# NeMo Guardrails: a self-check input rail run by a model on NVIDIA NIM.
+# Needs NVIDIA_API_KEY in the environment. Change the model to any NIM chat model.
+models:
+  - type: main
+    engine: nim
+    model: nvidia/llama-3.1-nemotron-nano-8b-v1
+
+rails:
+  input:
+    flows:
+      - self check input
+
+prompts:
+  - task: self_check_input
+    content: |
+      You check requests sent to an avatar creator in a video game.
+
+      Block the request if it asks to recreate a specific copyrighted or trademarked character
+      (from films, anime, comics, games or brands), or to make the avatar look like a specific
+      real, identifiable person (celebrity, public figure, or a private person who is not the user).
+
+      Allow requests for art styles, genres and generic looks (for example "anime style",
+      "cyberpunk", "like a knight", "spiky hair", "pirate outfit").
+
+      User request: "{{ user_input }}"
+
+      Should this request be blocked (Yes or No)?
+      Answer:

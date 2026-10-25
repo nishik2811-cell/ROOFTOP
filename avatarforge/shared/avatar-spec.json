@@ -1,0 +1,32 @@
+{
+  "about": "The player's avatar description, shared by every game. Numbers are sliders from 0 to 1 (0.5 is neutral). Strings starting with # are colours. Keys in 'enums' take one of the listed values. 'vibe' is a list of free tags.",
+  "defaults": {
+    "face": {
+      "faceLength": 0.5, "foreheadHeight": 0.5, "foreheadWidth": 0.5,
+      "cheekbones": 0.5, "jawSharpness": 0.5, "chinLength": 0.5,
+      "eyeSpacing": 0.5, "eyeSize": 0.5, "noseBridge": 0.5,
+      "noseWidth": 0.5, "lipFullness": 0.5, "browHeight": 0.5
+    },
+    "body": {
+      "height": 0.5, "shoulderWidth": 0.5, "torsoLength": 0.5,
+      "armLength": 0.5, "legLength": 0.5, "muscle": 0.5, "bodyFat": 0.5,
+      "hipWidth": 0.5
+    },
+    "physique": "custom",
+    "hair": {
+      "style": "short",
+      "length": 0.5, "spikiness": 0.5, "volume": 0.5,
+      "color": "#3b2a1e"
+    },
+    "colors": {
+      "skin": "#c68e6a", "eyes": "#4a3020",
+      "primary": "#c0392b", "secondary": "#1c1c1c"
+    },
+    "vibe": []
+  },
+  "enums": {
+    "physique": ["custom", "slim", "athletic", "muscular", "stocky", "curvy"],
+    "hair.style": ["buzz", "short", "spiky", "slick-back", "curly", "long"]
+  },
+  "maxVibeTags": 5
+}

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AvatarForge</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">◆</span>
+        <div>
+          <h1>AvatarForge</h1>
+          <p>One player, many games: describe yourself once, fit every game's style.</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span id="status" class="badge">● Connecting…</span>
+        <button id="undo" type="button">Undo</button>
+        <button id="reset" type="button">Reset</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel" id="controls" aria-label="Avatar controls"></aside>
+
+      <section class="stage" aria-label="Game preview">
+        <nav class="tabs" id="tabs" role="tablist" aria-label="Game"></nav>
+        <article class="game" id="game">
+          <div class="canvas-wrap" id="canvas-wrap"></div>
+          <div class="overlay top">
+            <div>
+              <h2 id="game-name"></h2>
+              <p id="game-tagline"></p>
+            </div>
+            <button type="button" class="zoom" id="zoom">Face close-up</button>
+          </div>
+          <div class="overlay bottom">
+            <ul class="notes" id="notes"></ul>
+            <span class="hint-drag">Drag to turn</span>
+          </div>
+          <div class="actions">
+            <button type="button" id="play-btn" class="primary">▶ Play in this game</button>
+            <button type="button" id="export-btn">⬇ Export .glb</button>
+          </div>
+        </article>
+      </section>
+
+      <aside class="panel copilot" aria-label="Copilot">
+        <div class="copilot-head">
+          <h2>Copilot</h2>
+          <p class="muted">Describe your look in plain words.</p>
+        </div>
+        <div id="chat" class="chat" aria-live="polite"></div>
+        <div class="suggestions" id="suggestions" aria-label="Try one of these"></div>
+        <form id="ask" class="ask">
+          <input id="message" autocomplete="off" maxlength="500" placeholder="e.g. sharper jaw, spiky red hair, muscular" />
+          <button type="submit">Send</button>
+        </form>
+        <button id="webcam" type="button" class="wide ghost">📷 Start from my face (webcam)</button>
+      </aside>
+    </main>
+
+    <dialog id="consent">
+      <h2>Start from your face</h2>
+      <ul>
+        <li>MediaPipe measures proportions (like jaw width and eye spacing) <strong>in your browser</strong>.</li>
+        <li>No photo or video is saved, uploaded, or used as a texture. Only slider values come out.</li>
+        <li>Use only your own face.</li>
+      </ul>
+      <video id="video" playsinline muted></video>
+      <p id="capture-status" class="muted"></p>
+      <div class="row">
+        <button id="consent-cancel" type="button">Cancel</button>
+        <button id="consent-go" type="button" class="primary">I agree, measure my face</button>
+      </div>
+    </dialog>
+
+    <div id="play" class="play" hidden>
+      <div class="play-bar">
+        <span id="play-title"></span>
+        <button id="play-close" type="button">Close (Esc)</button>
+      </div>
+      <div id="play-stage" class="play-stage"></div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
