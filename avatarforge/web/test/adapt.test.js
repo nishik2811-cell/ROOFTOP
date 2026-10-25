@@ -103,3 +103,17 @@ describe('palette snapping looks right to people', () => {
     expect(['#ffccaa', '#ab5236']).toContain(nearestColor('#c68e6a', retro.theme.palette));
   });
 });
+
+describe('palette notes and hues', () => {
+  it('stays quiet for the default outfit colour in the Among Us-style game', () => {
+    expect(adapt(avatar(), bean).notes.join(' ')).not.toMatch(/palette/);
+  });
+
+  it('keeps blue blue', () => {
+    expect(nearestColor('#2e6fd8', bean.theme.palette)).toBe('#132ed1');
+  });
+
+  it('keeps brown hair brown-ish in the retro palette, not navy', () => {
+    expect(nearestColor('#3b2a1e', retro.theme.palette)).not.toBe('#1d2b53');
+  });
+});

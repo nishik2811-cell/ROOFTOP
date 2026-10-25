@@ -4,33 +4,36 @@ import { clamp01, DEFAULTS } from '../avatar/spec.js';
 
 const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 
-// sRGB hex -> CIE Lab, so palette snapping matches how different colours look to people.
+// sRGB hex -> OKLab, so palette snapping matches how different colours look to people
+// (OKLab handles blues much better than CIE Lab).
 function toLab(hex) {
   const [r, g, b] = hexToRgb(hex).map((c) => {
     const v = c / 255;
     return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
   });
-  const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
-  const x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047);
-  const y = f(0.2126 * r + 0.7152 * g + 0.0722 * b);
-  const z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883);
-  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
 }
 
-/** Perceptual difference between two colours (CIE76 delta E; under ~10 is hard to notice). */
+/** Perceptual difference between two colours in OKLab (0 = same, ~1 = black vs white). */
 export function colorDistance(a, b) {
   const [l1, a1, b1] = toLab(a);
   const [l2, a2, b2] = toLab(b);
-  return Math.hypot(l1 - l2, a1 - a2, b1 - b2);
+  // Hue and colourfulness count double: a palette match should keep "brown" brown.
+  return Math.hypot(l1 - l2, 2 * (a1 - a2), 2 * (b1 - b2));
 }
 
 export function nearestColor(hex, palette) {
-  const [l, a, b] = toLab(hex);
   let best = palette[0];
   let bestD = Infinity;
   for (const p of palette) {
-    const [pl, pa, pb] = toLab(p);
-    const d = (l - pl) ** 2 + (a - pa) ** 2 + (b - pb) ** 2;
+    const d = colorDistance(hex, p);
     if (d < bestD) [best, bestD] = [p, d];
   }
   return best;
@@ -97,7 +100,7 @@ export function adapt(avatar, profile, choices = {}) {
       const snap = theme.snapAllColors || rule?.from === 'palette';
       if (snap) {
         const s = nearestColor(v, theme.palette);
-        if (colorDistance(s, v) > 12) snapped = true;
+        if (colorDistance(s, v) > 0.12) snapped = true;
         v = s;
       }
     }
