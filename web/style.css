@@ -12,6 +12,22 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Bedross";
+  src: url("/bedross-regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bedross";
+  src: url("/bedross-italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   --paper: #ead3bf;
   --paper-shadow: rgb(70 56 38 / 0.32);
@@ -1023,32 +1039,27 @@ body.intro-on { overflow: hidden; }
 
 .intro-mark {
   position: absolute;
-  left: 6vw;
-  right: 6vw;
+  left: 4vw;
+  right: 4vw;
   bottom: calc(21vh + 2.5vh);
   margin: 0;
   padding: 8px 16px;
   box-sizing: border-box;
   text-align: center;
-  color: #f24b37;
-  font-family: "Shoulders", Impact, "Arial Black", sans-serif;
-  font-weight: 800;
-  font-style: italic;
-  font-size: clamp(64px, 15vw, 165px);
-  line-height: 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  color: #f7ede1;
+  font-family: "Bedross", serif;
+  font-weight: 400;
+  font-style: normal;
+  font-size: clamp(60px, 14vw, 150px);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  font-feature-settings: "dlig" 1, "ss01" 1;
   white-space: nowrap;
-  -webkit-text-stroke: clamp(1.4px, 0.24vw, 2.8px) #151311;
   text-shadow:
-    -5px -4px 0 #00a8e8,
-    -4px -3px 0 #00a8e8,
-    -3px -2px 0 #00a8e8,
-    -2px -1px 0 #00a8e8,
-    2px 2px 0 #151311,
-    3px 3px 0 #151311,
-    4px 5px 0 #151311,
-    0 10px 28px rgba(0, 0, 0, 0.75);
+    0 2px 4px rgba(0, 0, 0, 0.45),
+    0 8px 24px rgba(0, 0, 0, 0.7),
+    0 0 35px rgba(247, 237, 225, 0.14);
   transition: opacity 0.6s, transform 1.1s var(--ease), bottom 1.3s var(--ease);
   pointer-events: none;
   z-index: 2;
@@ -1068,8 +1079,12 @@ body.intro-on { overflow: hidden; }
   align-items: center;
   padding: 0 4vw;
   transform: translateY(-50%);
-  font: 800 min(18vh, 7.5vw)/0.86 "Shoulders", Impact, "Arial Narrow", sans-serif;
-  text-transform: uppercase;
+  font-family: "Bedross", serif;
+  font-weight: 400;
+  font-size: min(17vh, 7vw);
+  line-height: 0.9;
+  text-transform: none;
+  font-feature-settings: "dlig" 1, "ss01" 1;
   pointer-events: none;
 }
 .intro-left, .intro-right { position: relative; display: flex; gap: 0.32em; }
@@ -1118,11 +1133,11 @@ body.intro-on { overflow: hidden; }
   body.intro-on.intro-s3 .stage { clip-path: inset(40vh 8vw calc(100% - 53vh) 8vw round 999px); }
   .intro.s2 .intro-window { top: 6vh; left: 5vw; width: 90vw; height: 68vh; }
   .intro.s3 .intro-window { top: 40vh; left: 8vw; width: 84vw; height: 13vh; }
-  .intro-title { flex-direction: column; gap: 17vh; top: 46.5vh; font-size: 19vw; }
+  .intro-title { flex-direction: column; gap: 13vh; top: 34vh; font-size: clamp(32px, 10.5vw, 46px); }
   .intro-corner { display: none; }
-  .intro-enter { top: 62vh; }
-  .intro-line { bottom: 5vh; padding: 0 20px; }
-  .intro-mark { left: 2vw; right: 2vw; bottom: calc(26vh + 2.2vh); font-size: clamp(44px, 14.5vw, 74px); white-space: nowrap; }
+  .intro-enter { top: 61vh; }
+  .intro-line { bottom: 8vh; padding: 0 20px; }
+  .intro-mark { left: 0; right: 0; bottom: calc(26vh + 3vh); font-size: clamp(38px, 12vw, 56px); white-space: nowrap; text-align: center; }
 }
 
 /* ---------- after the city opens ---------- */
@@ -1846,8 +1861,8 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
   .intro-extra { display: none; }
   body.intro-on.intro-s3 .stage { clip-path: inset(30.5vh 8vw calc(100% - 43.5vh) 8vw round 999px); clip-path: inset(30.5svh 8vw calc(100% - 43.5svh) 8vw round 999px); }
   .intro.s3 .intro-window { top: 30.5vh; top: 30.5svh; height: 13vh; height: 13svh; }
-  .intro-title { top: 37vh; top: 37svh; gap: 17vh; gap: 17svh; }
-  .intro-enter { top: calc(45.5vh + 15vw + 8px); top: calc(45.5svh + 15vw + 8px); }
+  .intro-title { top: 32vh; top: 32svh; gap: 13vh; gap: 13svh; }
+  .intro-enter { top: 58vh; top: 58svh; }
   .intro-line { bottom: calc(10vh + env(safe-area-inset-bottom, 0px)); bottom: calc(10svh + env(safe-area-inset-bottom, 0px)); }
   .intro-credits { bottom: calc(4vh + env(safe-area-inset-bottom, 0px)); bottom: calc(4svh + env(safe-area-inset-bottom, 0px)); }
 }

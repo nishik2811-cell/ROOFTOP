@@ -52,6 +52,8 @@ public class WebServer {
         PAGES.put("/app.js", new String[]{"app.js", "text/javascript; charset=utf-8"});
         PAGES.put("/e2e.js", new String[]{"e2e.js", "text/javascript; charset=utf-8"});
         PAGES.put("/display.woff2", new String[]{"display.woff2", "font/woff2"}); // Big Shoulders Display (OFL), for the intro
+        PAGES.put("/bedross-regular.woff2", new String[]{"bedross-regular.woff2", "font/woff2"});
+        PAGES.put("/bedross-italic.woff2", new String[]{"bedross-italic.woff2", "font/woff2"});
         // shown inline so murals can use them; everything else (html, svg, ...) is a plain download
         IMAGE_TYPES.put("jpg", "image/jpeg");
         IMAGE_TYPES.put("jpeg", "image/jpeg");
