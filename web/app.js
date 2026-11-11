@@ -247,7 +247,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     && !hidden(centerOf(endFace(b)), b.depth + 0.01));
 
   const lamps = [];
-  for (const [, curb] of AVENUES) for (let z = 1.5; z < 54; z += 3.5) {
+  for (const [curb] of AVENUES) for (let z = 1.5; z < 54; z += 3.5) {
     const x = curb + 0.2;
     if (!onLand(x, z, 0.5) || z % (BD + ST) > BD) continue;
     if (x > PLAZA.x0 + 1 && x < PLAZA.x1 - 1 && z > PLAZA.z0 && z < PLAZA.z1) continue;
