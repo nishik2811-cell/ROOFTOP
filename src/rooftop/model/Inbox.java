@@ -34,6 +34,31 @@ public class Inbox {
     private final Set<String> takenNames = new HashSet<>();          // fast "is this name used?"
     private final LinkedList<ReceivedText> texts = new LinkedList<>(); // newest first, capped
     private final Set<String> receiving = new HashSet<>();           // resumable ids being written right now
+    private long totalReceivedBytes = 0;
+
+    public static String category(String filename) {
+        if (filename == null) return "file";
+        String lower = filename.toLowerCase();
+        int dot = lower.lastIndexOf('.');
+        String ext = dot >= 0 ? lower.substring(dot + 1) : "";
+        return switch (ext) {
+            case "jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "bmp", "ico" -> "image";
+            case "mp4", "webm", "mkv", "mov", "avi", "wmv", "m4v" -> "video";
+            case "mp3", "wav", "ogg", "flac", "m4a", "aac", "opus" -> "audio";
+            case "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "txt", "rtf", "md" -> "document";
+            case "zip", "tar", "gz", "tgz", "rar", "7z", "bz2", "xz" -> "archive";
+            case "js", "ts", "html", "css", "java", "py", "c", "cpp", "h", "cs", "go", "rs", "json", "xml", "yaml", "yml", "sql", "sh", "bat", "ps1" -> "code";
+            default -> "file";
+        };
+    }
+
+    public synchronized long totalReceivedBytes() {
+        return totalReceivedBytes;
+    }
+
+    public synchronized int fileCount() {
+        return items.size();
+    }
 
     public Inbox(Path dir) throws IOException {
         this.dir = dir;
@@ -83,6 +108,7 @@ public class Inbox {
         ReceivedItem item = new ReceivedItem(name, size, from, fromId, to, System.currentTimeMillis());
         synchronized (this) {
             items.add(item);
+            totalReceivedBytes += size;
         }
         return item;
     }
@@ -150,6 +176,7 @@ public class Inbox {
         ReceivedItem item = new ReceivedItem(name, size, from, fromId, to, System.currentTimeMillis());
         synchronized (this) {
             items.add(item);
+            totalReceivedBytes += size;
         }
         return item;
     }
@@ -216,6 +243,7 @@ public class Inbox {
     /** A new session starts empty: messages cleared, and every file this inbox received is deleted. Returns how many. */
     public synchronized int newSession() throws IOException {
         texts.clear();
+        totalReceivedBytes = 0;
         int removed = 0;
         for (ReceivedItem i : new ArrayList<>(items))
             if (remove(i.name())) removed++;

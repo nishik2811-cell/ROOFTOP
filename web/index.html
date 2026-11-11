@@ -26,6 +26,8 @@
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></symbol>
   <symbol id="i-volume" viewBox="0 0 24 24"><path d="M15 8a5 5 0 0 1 0 8"/><path d="M17.7 5a9 9 0 0 1 0 14"/><path d="M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5L6 15z"/></symbol>
   <symbol id="i-volume-off" viewBox="0 0 24 24"><path d="M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5L6 15z"/><path d="M16 9l6 6"/><path d="M22 9l-6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0 -3 -3.85"/></symbol>
 </svg>
 
 <div class="intro" id="intro" hidden>
@@ -69,10 +71,16 @@
     <aside class="story" id="story" aria-label="Selected file" hidden>
       <button class="story-close" type="button" id="storyClose" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
       <div class="story-art" id="storyArt"></div>
-      <p class="story-kicker" id="storyKicker"></p>
+      <div class="story-tags">
+        <span class="story-badge" id="storyCategory">FILE</span>
+        <p class="story-kicker" id="storyKicker"></p>
+      </div>
       <h2 class="story-title" id="storyTitle"></h2>
       <p class="story-meta" id="storyMeta"></p>
-      <a class="pill pill-primary story-save" id="storySave" download><span class="disc"><svg class="i"><use href="#i-down"/></svg></span>Save file</a>
+      <div class="story-actions">
+        <a class="pill pill-primary story-save" id="storySave" download><span class="disc"><svg class="i"><use href="#i-down"/></svg></span>Save file</a>
+        <a class="pill story-open-tab" id="storyOpenTab" target="_blank" rel="noopener">Open in tab</a>
+      </div>
       <div class="story-nav">
         <button type="button" id="storyPrev" aria-label="Previous file"><svg class="i"><use href="#i-left"/></svg></button>
         <span id="storyCount"></span>
@@ -133,11 +141,18 @@
     </aside>
 
     <div class="bar bar-bottom">
-      <label class="pill pill-to" for="sendTo">
-        <span class="to-label">Send to</span>
-        <select id="sendTo" aria-label="Who gets the files and text you send"><option value="*">Everyone</option></select>
-        <svg class="i to-caret" aria-hidden="true"><use href="#i-right"/></svg>
-      </label>
+      <div class="to-picker-wrap">
+        <button class="pill pill-to" type="button" id="sendToBtn" aria-haspopup="listbox" aria-expanded="false">
+          <span class="to-label">Send to</span>
+          <span class="to-current" id="sendToName">Everyone</span>
+          <svg class="i to-caret" aria-hidden="true"><use href="#i-right"/></svg>
+        </button>
+        <select id="sendTo" class="sr-only" tabindex="-1" aria-hidden="true"><option value="*">Everyone</option></select>
+        <div class="to-menu" id="sendToMenu" role="listbox" hidden>
+          <div class="to-menu-head">Send recipient</div>
+          <ul class="to-menu-list" id="sendToList"></ul>
+        </div>
+      </div>
       <button class="round" type="button" id="sendToChat" aria-label="Chat with this person" hidden><svg class="i"><use href="#i-chat"/></svg></button>
       <button class="round" type="button" id="soundBtn" aria-label="Mute sounds" title="Toggle sound effects" aria-pressed="false"><svg class="i"><use href="#i-volume"/></svg></button>
       <button class="round" type="button" id="themeBtn" aria-label="Time of day cycle" title="Switch time of day (Auto cycle active)" aria-pressed="false"><svg class="i"><use href="#i-sun"/></svg></button>
@@ -196,6 +211,7 @@
       <p class="empty notify-note" data-notify-note></p>
     </section>
   </section>
+
 </main>
 
 
