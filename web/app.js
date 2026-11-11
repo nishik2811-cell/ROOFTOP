@@ -761,10 +761,10 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     c.strokeStyle = '#7b8588'; c.lineWidth = 0.7;
     c.beginPath(); c.moveTo(x - 0.6, y - 3); c.lineTo(x - 0.6, y - 29); c.stroke();
     c.fillStyle = '#28323a';
-    c.beginPath(); c.ellipse(hx, hy, 5, 2.4, -0.3, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.ellipse(hx, hy, 5, 2.4, 0.5, 0, Math.PI * 2); c.fill();
     c.fillStyle = p.lit ? '#fff0bc' : '#b4bec0';
     if (p.lit) { c.shadowColor = '#ffcf73'; c.shadowBlur = 4; }
-    c.beginPath(); c.ellipse(hx, hy + 1.3, 3.5, 1, -0.3, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.ellipse(hx, hy + 1.3, 3.5, 1, 0.5, 0, Math.PI * 2); c.fill();
     c.restore();
   }
 
