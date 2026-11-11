@@ -78,8 +78,13 @@ const deviceId = local.get('rooftop-device') || (() => {
   return id;
 })();
 const withPin = (path) => (isLocal ? path : path + (path.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(pin) + '&device=' + deviceId);
-const fileUrl = (name) => withPin('/api/files/' + encodeURIComponent(name));
-const saveUrl = (name) => withPin('/api/files/' + encodeURIComponent(name) + '?dl=1'); // asks the browser to save, not open
+// shortcut: decrypted blobs and browser history live until reload; use disk-backed storage for very large batches.
+// Files this page decrypted for itself (a phone's private and broadcast files). They live in the page until it closes,
+// so saving works whenever the person taps Save; the PC keeps its encrypted copy until then, as a fallback.
+const localFiles = [];
+const localFile = (name) => localFiles.find((f) => f.name === name);
+const fileUrl = (name) => localFile(name)?.url || withPin('/api/files/' + encodeURIComponent(name));
+const saveUrl = (name) => localFile(name)?.url || withPin('/api/files/' + encodeURIComponent(name) + '?dl=1'); // asks the browser to save, not open
 
 async function call(path, options) {
   const res = await fetch(withPin(path), options);
@@ -166,9 +171,6 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   for (let j = -3; j <= 8; j++) ROADS_Z.push(bz(j) + BD + ST / 2);
   const CAR_ROADS_Z = ROADS_Z.filter((z) => z < PLAZA.z0 || z > PLAZA.z1); // no traffic through the plaza
   const centre = [(PLAZA.x0 + PLAZA.x1) / 2, (PLAZA.z0 + PLAZA.z1) / 2];
-  // four districts, each with its own facade colour and roof
-  const district = (i, j) => (i < 2.5 ? 0 : 1) + (j < 2.5 ? 0 : 2);
-  const DISTRICT_FACADE = [4, 1, 2, 0], DISTRICT_ROOF = ['B', 'A', 'B', 'A'];
   const towerBlocks = new Set(['1,3', '4,3', '1,4', '4,4']);
   const buildings = [];
   const lots = [];
@@ -187,15 +189,15 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
         continue;
       }
       if (towerBlocks.has(i + ',' + j)) {
-        buildings.push({ type: 'tower', x0: x0 + 2, x1: x0 + 6, z0: z0 + 1, z1: z0 + 5, floors: 11, h: 11 * 0.95 + 0.4, facade: 3, roof: 'B', seed });
+        buildings.push({ type: 'tower', x0: x0 + 2, x1: x0 + 6, z0: z0 + 1, z1: z0 + 5, floors: 11, h: 11 * 0.95 + 0.4, facade: Math.floor(plan() * 6), roof: 'B', seed });
         continue;
       }
-      // heights step down evenly from the centre, every block has two matching buildings and a lawn between
+      // heights step down evenly from the centre, every block has two buildings and a lawn between
       const floors = Math.max(2, Math.min(7, Math.round(8 - d / 7)));
       const type = floors >= 6 ? 'block' : floors >= 4 ? 'block' : 'house';
       for (const [a, b] of [[0.7, 3.6], [4.4, 7.3]]) {
         buildings.push({ type, x0: x0 + a, x1: x0 + b, z0: z0 + 0.9, z1: z0 + 5.1, floors, h: floors * 0.95 + 0.4,
-          facade: DISTRICT_FACADE[district(i, j)], roof: DISTRICT_ROOF[district(i, j)], seed: seed + a * 1000 });
+          facade: Math.floor(plan() * 6), roof: plan() < 0.5 ? 'A' : 'B', seed: seed + a * 1000 });
       }
       gardens.push({ x0: x0 + 3.75, x1: x0 + 4.25, z0: z0 + 0.9, z1: z0 + 5.1 });
     }
@@ -658,6 +660,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       f.lineWidth = 3; f.strokeStyle = '#2a1f1c'; f.fillStyle = '#fbf3e6';
       f.strokeText(text, w / 2, h * 0.3); f.fillText(text, w / 2, h * 0.3);
     }
+    if (file.forYou) forYouTag(f, w, h);
     f.restore();
   }
 
@@ -671,6 +674,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       f.save(); f.beginPath(); f.rect(4, 4, w - 8, h - 8); f.clip();
       f.drawImage(img, (w - img.naturalWidth * s) / 2, (h - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s);
       f.restore();
+      if (file.forYou) forYouTag(f, w, h);
       return;
     }
     // a poster: a big colour block with the file type, the name underneath, the sender in small type
@@ -688,7 +692,20 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     f.fillText(name, w * 0.47, h * 0.42);
     f.font = `600 ${h * 0.1}px ${MONO}`;
     f.fillStyle = shade(color, 0.7);
-    f.fillText('from ' + (file.from || '').slice(0, 18), w * 0.47, h * 0.64);
+    f.fillText((file.forYou ? 'for you · from ' : 'from ') + (file.from || '').slice(0, file.forYou ? 10 : 18), w * 0.47, h * 0.64);
+    if (file.forYou) forYouTag(f, w, h);
+  }
+
+  // a small red ribbon in the corner: this device is among the explicitly selected recipients
+  function forYouTag(f, w, h) {
+    const s = Math.max(9, Math.min(w, h) * 0.13);
+    f.font = `800 ${s}px ${MONO}`;
+    const tw = f.measureText('FOR YOU').width + s;
+    f.fillStyle = '#e2483d';
+    f.fillRect(w - tw - 6, 6, tw, s * 1.6);
+    f.fillStyle = '#fbf3e6';
+    f.textAlign = 'center'; f.textBaseline = 'middle';
+    f.fillText('FOR YOU', w - 6 - tw / 2, 6 + s * 0.8);
   }
 
   function paintInvite(f, w, h) {
@@ -1408,6 +1425,15 @@ function setArmed(name) {
 async function removeFile(name) {
   if (armedName !== name) { setArmed(name); return; }
   setArmed(null);
+  const lf = localFile(name);
+  if (lf) { // decrypted here: drop it here, and let the PC delete its encrypted copy
+    ackLocal(lf);
+    localFiles.splice(localFiles.indexOf(lf), 1);
+    setTimeout(() => URL.revokeObjectURL(lf.url), 60000);
+    toast(`Removed ${name}`);
+    await refresh();
+    return;
+  }
   try {
     await call('/api/remove?name=' + encodeURIComponent(name), { method: 'POST' });
     toast(`Removed ${name}`);
@@ -1463,6 +1489,14 @@ async function refresh() {
   if (!pin && !isLocal) return;
   try {
     const next = await (await call('/api/state')).json();
+    if (state.session && next.session !== state.session) {
+      localFiles.splice(0).forEach((f) => URL.revokeObjectURL(f.url));
+      browserHistory.length = 0;
+      incomingTransfers.clear();
+      sealedDone.clear();
+      renderIncomingTransfers();
+    }
+    next.files = [...localFiles, ...next.files.filter((f) => !localFile(f.name)).map((f) => ({ ...f, forYou: !f.mine && f.to !== 'everyone' }))];
     state = next;
     if (!lastOnline) toast('Back online');
     lastOnline = true;
@@ -1476,7 +1510,8 @@ async function refresh() {
       if (fresh.length > 0) {
         unreadIncomingCount += fresh.length;
         updateIncomingBadge();
-        transmission(fresh);
+        const transferIds = new Set(fresh.map((f) => f.transferId).filter(Boolean));
+        if (!transferIds.size) transmission(fresh);
         const freshIndex = murals.findIndex((m) => m.file.name === fresh[0].name);
         if (freshIndex >= 0) {
           select(freshIndex, true, false);
@@ -1523,6 +1558,8 @@ async function receiveAllFiles(list) {
   if (!list || !list.length) return;
   const box = $('#transmission');
   if (box) box.hidden = true;
+  const locals = list.map((f) => localFile(f.name));
+  if (locals.every(Boolean) && shareSaves(locals)) return; // iPhone: one share sheet with every file (Save to Files / Photos)
   toast(`Receiving ${list.length} ${list.length === 1 ? 'file' : 'files'}…`);
   for (let i = 0; i < list.length; i++) {
     const a = document.createElement('a');
@@ -1533,7 +1570,7 @@ async function receiveAllFiles(list) {
     a.remove();
     if (i < list.length - 1) await new Promise((r) => setTimeout(r, 220));
   }
-  toast(`All ${list.length} files saved!`);
+  toast(`Downloads requested for ${list.length} files. Allow multiple downloads if your browser asks.`);
 }
 
 /** Files that showed up since the last poll and did not come from this device. */
@@ -1672,7 +1709,7 @@ function transmission(filesOrFile, message) {
     if (count === 1) {
       const file = files[0];
       notify(`${file.name}`, `From ${file.from}, ${humanSize(file.size)}`, 'file');
-      title.textContent = 'Incoming transmission';
+      title.textContent = file.forYou ? 'Sent to you' : 'Incoming transmission';
       if (badge) badge.hidden = true;
       body.textContent = `${file.name} from ${file.from} (${humanSize(file.size)})`;
       open.hidden = false;
@@ -1889,12 +1926,14 @@ function updateNav() {
 
 function pickRecipient(val) {
   const select = $('#sendTo');
-  if (select) {
-    select.value = val;
-    select.dispatchEvent(new Event('change'));
-  }
+  const chosen = new Set(select.value === '*' ? [] : select.value.split(',').filter(Boolean));
+  if (val === '*') chosen.clear();
+  else if (chosen.has(val)) chosen.delete(val);
+  else chosen.add(val);
+  const value = val === '*' ? '*' : [...chosen].join(',');
+  if (![...select.options].some((o) => o.value === value)) select.add(new Option('Selected devices', value));
+  select.value = value;
   renderRecipients(true);
-  toggleSendToMenu(false);
 }
 
 function toggleSendToMenu(open) {
@@ -1923,21 +1962,25 @@ function renderRecipients(force = false) {
     if (select.dataset.key !== key || force) {
       const keep = select.value;
       select.replaceChildren(...files.map(([value, text, disabled]) => el('option', { value, textContent: text, disabled })));
-      select.value = files.some(([v, , off]) => v === keep && !off) ? keep : '*';
+      if (keep !== '*' && !files.some(([v]) => v === keep)) select.add(new Option('Selected devices', keep));
+      select.value = keep;
       select.dataset.key = key;
     }
     const curVal = select.value;
-    $('#sendToChat').hidden = curVal === '*';
+    $('#sendToChat').hidden = curVal === '*' || !curVal || curVal.includes(',');
 
     // Update button text
     const curPerson = people.find((p) => p.id === curVal);
-    const curName = curVal === '*' ? 'Everyone' : (curPerson ? curPerson.name + (curPerson.pc ? ' (PC)' : '') : 'Recipient');
+    const curName = curVal === '*' ? 'Everyone' : (curPerson ? curPerson.name + (curPerson.pc ? ' (PC)' : '') : curVal ? `${curVal.split(',').length} people` : 'Choose people');
     const nameEl = $('#sendToName');
     if (nameEl) nameEl.textContent = curName;
 
     // Render custom rich list
     const list = $('#sendToList');
     if (list) {
+      const menuKey = JSON.stringify([files, curVal]);
+      if (list.dataset.key === menuKey) return;
+      list.dataset.key = menuKey;
       const items = [];
 
       // Everyone
@@ -1952,12 +1995,16 @@ function renderRecipients(force = false) {
         icon('i-check')
       );
       allItem.lastChild.classList.add('to-item-check');
+      allItem.setAttribute('role', 'option');
+      allItem.setAttribute('aria-selected', String(curVal === '*'));
+      allItem.tabIndex = 0;
       allItem.addEventListener('click', () => pickRecipient('*'));
+      allItem.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); pickRecipient('*'); } });
       items.push(allItem);
 
       // Connected devices
       for (const p of people) {
-        const isSel = curVal === p.id;
+        const isSel = curVal.split(',').includes(p.id);
         const off = !p.key;
         const ver = p.key && isVerified(p.key);
         const subText = ver ? '✓ Verified' : (p.key ? 'End-to-end encrypted' : (p.pc ? 'PC page closed' : 'No key yet'));
@@ -1972,9 +2019,15 @@ function renderRecipients(force = false) {
           ),
           icon('i-check')
         );
+        item.dataset.id = p.id;
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', String(isSel));
+        item.setAttribute('aria-disabled', String(off));
         item.lastChild.classList.add('to-item-check');
         if (!off) {
+          item.tabIndex = 0;
           item.addEventListener('click', () => pickRecipient(p.id));
+          item.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); pickRecipient(p.id); $('#sendToList').querySelector(`[data-id="${p.id}"]`)?.focus(); } });
         }
         items.push(item);
       }
@@ -1997,6 +2050,41 @@ function avatar(d, size = '') {
   a.setAttribute('aria-hidden', 'true');
   return a;
 }
+
+const browserHistory = [];
+const incomingTransfers = new Map();
+async function transferNotice(job, status) {
+  if (!job.recipients.length) return;
+  const bytes = await E2E.sealMessage({ k: 'transfer', id: job.transferId, count: job.transferCount, job: job.id, status }, job.recipients.map((r) => E2E.unb64(r.key)), myPair);
+  await call('/api/chat/send?to=' + encodeURIComponent(job.recipients.map((r) => r.id).join(',')), { method: 'POST', body: bytes });
+}
+function receiveTransferNotice(b, from) {
+  if (typeof b.id !== 'string' || b.id.length > 80 || !Number.isSafeInteger(b.count) || b.count < 1 || b.count > 10000 || !Number.isSafeInteger(b.job) || b.job < 1 || !['uploading', 'sent', 'failed', 'cancelled'].includes(b.status)) return;
+  const key = from + ':' + b.id;
+  if (!incomingTransfers.has(key)) notify('Incoming files', `${b.count} files from ${person(from).name}`, 'file');
+  const t = incomingTransfers.get(key) || { from: person(from).name, count: b.count, jobs: new Map(), received: 0 };
+  t.jobs.set(b.job, b.status);
+  incomingTransfers.set(key, t);
+  renderIncomingTransfers();
+}
+function markReceived(got) {
+  if (!got.transferId || !got.sender) return;
+  const key = got.sender.id + ':' + got.transferId;
+  const t = incomingTransfers.get(key) || { from: got.sender.name, count: got.transferCount || 1, jobs: new Map(), received: 0 };
+  t.received++;
+  incomingTransfers.set(key, t);
+  renderIncomingTransfers();
+}
+function renderIncomingTransfers() {
+  $('#incomingTransfers').replaceChildren(...[...incomingTransfers.values()].map((t) => {
+    const uploaded = [...t.jobs.values()].filter((s) => s === 'sent').length;
+    const failed = [...t.jobs.values()].filter((s) => s === 'failed' || s === 'cancelled').length;
+    return el('p', { textContent: `${t.from}: ${t.count} files · ${t.received} ready to save · ${uploaded} uploaded${failed ? ` · ${failed} failed or cancelled` : uploaded < t.count ? ' · transferring…' : ''}` });
+  }));
+  $('#incomingStatus').hidden = !incomingTransfers.size;
+  $('#incomingStatus').textContent = [...incomingTransfers.values()].map((t) => `${t.from}: ${t.received}/${t.count} files ready`).join(' · ') + ' — review & save';
+}
+$('#incomingStatus').addEventListener('click', () => { showTab('files'); openSheet('inbox'); });
 
 /* ---- sending: a queue that runs a few files at once, small ones first ---- */
 const picker = $('#picker');
@@ -2032,7 +2120,7 @@ function releaseWakeLock() {
 }
 
 /** Queues files for whoever is chosen in "Send to" right now. Works any time, also while other files are sending. */
-function upload(list) {
+async function upload(list) {
   if (!list.length) return;
   const to = $('#sendTo').value;
   // Every file is sealed in this browser for each recipient's key; nobody without a key gets anything.
@@ -2045,17 +2133,22 @@ function upload(list) {
   }
   if (missing.length) toast(`Not sent to ${missing.join(', ')}: no key yet, and Rooftop never sends files unencrypted.`, 7000);
   if (!busy()) { batch++; city.startFlight(); acquireWakeLock(); }
-  const toName = to === '*' ? 'Everyone' : recipients[0]?.name || state.me;
+  const toName = to === '*' ? 'Everyone' : recipients.map((r) => r.name).join(', ') || state.me;
+  const transferId = crypto.randomUUID();
+  const queued = [];
   for (const file of list) {
     jobs.push({ id: ++jobSeq, file, to, toName, recipients, keepHere, sealed: recipients.length > 0,
-      state: 'waiting', sent: 0, speed: 0, queuedAt: Date.now(), batch, xhr: null, cancelled: false, note: '' });
+      transferId, transferCount: list.length, state: 'announcing', sent: 0, speed: 0, queuedAt: Date.now(), batch, xhr: null, cancelled: false, note: '' });
+    queued.push(jobs[jobs.length - 1]);
   }
+  try { await transferNotice(queued[0], 'uploading'); } catch { toast('Could not announce the incoming files. The transfer will still be attempted.'); }
+  for (const job of queued) job.state = 'waiting';
   if (jobs.filter((j) => j.state === 'sending').length >= PARALLEL) toast(`${list.length > 1 ? list.length + ' files' : list[0].name} queued`);
   pump();
   renderTray();
 }
 
-const busy = () => jobs.some((j) => j.state === 'waiting' || j.state === 'sending');
+const busy = () => jobs.some((j) => j.state === 'announcing' || j.state === 'waiting' || j.state === 'sending');
 
 /** Starts as many waiting files as there are free lanes. */
 function pump() {
@@ -2093,6 +2186,10 @@ async function run(job) {
   }
   job.xhr = null;
   job.endedAt = performance.now();
+  if (job.sealed) {
+    browserHistory.unshift({ name: job.file.name, size: job.file.size, from: state.you, mine: true, to: job.toName, at: Date.now(), ok: job.state === 'sent', note: job.note, ms: job.endedAt - job.startedAt });
+    transferNotice(job, job.state).catch(() => {});
+  }
   pump();
   renderTray();
   if (!busy()) finishBatch();
@@ -2118,7 +2215,7 @@ async function finishBatch() {
 }
 
 function cancelJob(job) {
-  if (job.state === 'waiting') { job.state = 'cancelled'; renderTray(); if (!busy()) finishBatch(); return; }
+  if (job.state === 'waiting') { job.state = 'cancelled'; transferNotice(job, 'cancelled').catch(() => {}); renderTray(); if (!busy()) finishBatch(); return; }
   if (job.state !== 'sending') return;
   job.cancelled = true;
   job.xhr?.abort();
@@ -2128,6 +2225,7 @@ function retryJob(job) {
   Object.assign(job, { state: 'waiting', sent: 0, speed: 0, queuedAt: Date.now(), cancelled: false, note: '' });
   if (!jobs.some((j) => j !== job && j.state === 'sending')) { batch++; city.startFlight(); acquireWakeLock(); }
   job.batch = batch;
+  transferNotice(job, 'uploading').catch(() => {});
   pump();
   renderTray();
 }
@@ -2232,7 +2330,7 @@ function setSendButton() {
   const total = mine.reduce((a, j) => a + j.file.size, 0), sent = mine.reduce((a, j) => a + (j.state === 'sent' ? j.file.size : j.sent), 0);
   const p = total ? sent / total : 1;
   const on = busy();
-  const left = jobs.filter((j) => j.state === 'waiting' || j.state === 'sending').length;
+  const left = jobs.filter((j) => j.state === 'announcing' || j.state === 'waiting' || j.state === 'sending').length;
   $('#sendLabel').textContent = on ? `Sending ${left > 1 ? left + ' · ' : ''}${Math.round(p * 100)}%` : 'Send files';
   $('#sendFill').style.transform = `scaleX(${on ? p : 0})`;
   if (on) city.flightProgress(p);
@@ -2457,7 +2555,7 @@ function recipientsFor(to) {
   const all = [];
   if (!state.local) all.push({ id: state.meId, name: state.me, key: state.meKey || '', pc: true });
   for (const d of state.devices) if (d.kind !== 'PC' && d.id) all.push({ id: d.id, name: d.name, key: d.key });
-  const chosen = to === '*' ? all : all.filter((d) => d.id === to);
+  const chosen = to === '*' ? all : all.filter((d) => to.split(',').includes(d.id));
   return { list: chosen.filter((d) => d.key), missing: chosen.filter((d) => !d.key).map((d) => d.name) };
 }
 
@@ -2465,7 +2563,7 @@ const UPLOAD_BATCH = 4 * 1024 * 1024;
 async function sendSealed(job) {
   const file = job.file;
   const data = job.compressed ? await gzip(file) : file;
-  const details = { name: file.name, type: file.type || '', z: job.compressed ? 'gzip' : '', to: job.to === '*' ? 'everyone' : 'direct' };
+  const details = { name: file.name, type: file.type || '', z: job.compressed ? 'gzip' : '', to: job.to === '*' ? 'everyone' : 'direct', transferId: job.transferId, transferCount: job.transferCount };
   const { total, pieces } = await E2E.seal(data, details, job.recipients.map((r) => E2E.unb64(r.key)), myPair);
   const key = E2E.b64(crypto.getRandomValues(new Uint8Array(12))); // a new id per send
   const to = job.recipients.map((r) => r.id).join(',');
@@ -2531,28 +2629,69 @@ async function openSealed(item, onProgress) {
   await fingerprint(senderKey);
   let blob = new Blob(out.parts, { type: out.details.type || '' });
   if (out.details.z === 'gzip') blob = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).blob();
-  return { name: out.details.name, blob, sender, senderKey, code: await E2E.safetyCode(myRaw, out.senderRaw), everyone: out.details.to === 'everyone' };
+  return { name: out.details.name, transferId: out.details.transferId, transferCount: out.details.transferCount, blob, sender, senderKey, code: await E2E.safetyCode(myRaw, out.senderRaw), everyone: out.details.to === 'everyone' };
 }
 
-// Receiving. Phones: one card at a time; Open = download + decrypt here, Save = keep it, then the PC deletes its copy.
-// The PC's own page opens files for the PC by itself and saves them into the PC's inbox (over localhost).
-let sealedShowing = null;
+// Receive up to three files at once on phones and the host; saving is offered together in the inbox.
 const sealedDone = new Set();
+const opening = new Set();
 function offerSealed(list) {
-  if (sealedShowing || !myPair) return;
-  const next = list.find((s) => !sealedDone.has(s.id));
-  if (!next) return;
-  sealedShowing = next;
-  if (state.local) { receiveOnHost(next); return; }
-  notify('Private file', `${humanSize(next.size)} waiting for you`, 'file');
-  $('#sealedBody').textContent = `About ${humanSize(next.size)} waiting for you. Only this device can open it.`;
-  $('#sealedCode').textContent = '';
-  $('#sealedOpen').hidden = false;
-  $('#sealedOpen').disabled = false;
-  $('#sealedOpen').textContent = 'Open';
-  $('#sealedSave').hidden = true;
-  $('#sealedCard').hidden = false;
+  if (!myPair) return;
+  for (const item of list) {
+    if (opening.size >= PARALLEL) break;
+    if (opening.has(item.id) || sealedDone.has(item.id)) continue;
+    opening.add(item.id);
+    (state.local ? receiveOnHost(item) : receiveOnPhone(item))
+      .catch((e) => {
+        sealedDone.add(item.id); // retry on reload; do not repeatedly fetch a corrupt file
+        if (!(e instanceof PinError)) toast(`A private file could not be opened: ${e.message}. Reload to retry.`, 8000);
+      })
+      .finally(() => { opening.delete(item.id); refresh(); });
+  }
 }
+
+/** Downloads and decrypts one file here; it then shows up in the city, the inbox and the incoming card like any other. */
+async function receiveOnPhone(item) {
+  const got = await openSealed(item, () => {});
+  let name = got.name;
+  for (let n = 2; localFile(name) || state.files.some((f) => f.name === name); n++) name = got.name.replace(/(\.[^.]*)?$/, ` (${n})$1`);
+  localFiles.unshift({
+    name, transferId: got.transferId, size: got.blob.size, at: Date.now(), mine: false, removable: true, local: true,
+    from: got.sender ? got.sender.name : 'a device that has left', to: got.everyone ? 'everyone' : state.you, forYou: !got.everyone,
+    url: URL.createObjectURL(got.blob), blob: got.blob, sealedId: item.id, acked: false, code: got.code, senderKey: got.senderKey,
+  });
+  browserHistory.unshift({ ...localFiles[0], url: undefined, blob: undefined, ok: true });
+  markReceived(got);
+  sealedDone.add(item.id);
+  refresh();
+}
+
+/** Once a person has saved (or removed) a decrypted file, the PC can delete its encrypted copy. */
+function ackLocal(f) {
+  if (f.acked) return;
+  f.acked = true;
+  call(`/api/sealed/${f.sealedId}/ack`, { method: 'POST' }).catch(() => { f.acked = false; });
+}
+
+// iPhone and iPad: a download link to a file held in the page is unreliable in Safari, but the share sheet has
+// "Save to Files" and "Save Image". Other phones and computers download normally.
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function shareSaves(fs) {
+  if (!IOS || !navigator.canShare) return false;
+  const files = fs.map((f) => new File([f.blob], f.name, { type: f.blob.type || 'application/octet-stream' }));
+  if (!navigator.canShare({ files })) return false;
+  navigator.share({ files }).then(() => fs.forEach(ackLocal)).catch(() => { /* cancelled: tap Save again */ });
+  return true;
+}
+
+// Every Save button is a link to the file's URL; for files decrypted here, catch the tap to share or acknowledge it.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('a[href^="blob:"]');
+  const f = a && localFiles.find((x) => x.url === a.href);
+  if (!f) return;
+  if (shareSaves([f])) { e.preventDefault(); return; }
+  ackLocal(f);
+}, true);
 
 async function receiveOnHost(item) {
   try {
@@ -2560,49 +2699,15 @@ async function receiveOnHost(item) {
     const q = `?name=${encodeURIComponent(got.name)}&to=${got.everyone ? '*' : encodeURIComponent(state.meId)}` + (got.sender ? `&as=${encodeURIComponent(got.sender.id)}` : '');
     await call('/api/upload' + q, { method: 'POST', body: got.blob });
     await call(`/api/sealed/${item.id}/ack`, { method: 'POST' });
+    markReceived(got);
     sealedDone.add(item.id);
   } catch (e) {
     if (e instanceof PinError) return;
     sealedDone.add(item.id); // do not loop on it now; the PC keeps it, so reloading this page tries again
     toast(`A private file could not be opened: ${e.message}`, 8000);
-  } finally {
-    sealedShowing = null;
   }
   refresh();
 }
-
-$('#sealedOpen').addEventListener('click', async () => {
-  const item = sealedShowing;
-  const btn = $('#sealedOpen');
-  btn.disabled = true;
-  try {
-    const got = await openSealed(item, (n) => { btn.textContent = `${Math.min(100, Math.round((n / item.size) * 100))}%`; });
-    const url = URL.createObjectURL(got.blob);
-    const save = $('#sealedSave');
-    save.href = url;
-    save.download = got.name;
-    save.textContent = 'Save';
-    save.hidden = false;
-    btn.hidden = true;
-    const trust = isVerified(got.senderKey) ? 'verified' : 'not verified';
-    $('#sealedBody').textContent = `${got.name} from ${got.sender ? got.sender.name : 'a device that has left'} (${trust})`;
-    $('#sealedCode').replaceChildren('Safety code ', el('b', { textContent: got.code }), '. It should match the sender\'s screen.');
-    save.onclick = () => setTimeout(async () => {
-      await call(`/api/sealed/${item.id}/ack`, { method: 'POST' }).catch(() => {});
-      sealedDone.add(item.id);
-      URL.revokeObjectURL(url);
-      $('#sealedCard').hidden = true;
-      sealedShowing = null;
-      toast('Saved. The PC deletes its encrypted copy once everyone has theirs.');
-      refresh();
-    }, 1500);
-  } catch (e) {
-    if (e instanceof PinError) return;
-    btn.disabled = false;
-    btn.textContent = 'Try again';
-    $('#sealedBody').textContent = `Could not open it: ${e.message}.`;
-  }
-});
 
 /* ---- key panels: my QR code, and each device's code with a verify switch ---- */
 let qrFor = '';
@@ -2873,7 +2978,7 @@ function renderSheets() {
   if (isLocal) renderHost();
   renderNotify();
   renderKeys().then(() => renderRecipients());
-  if ($('#sheet-inbox').open && !$('#panelHistory').hidden && state.historyAt !== historyAt) loadHistory();
+  if ($('#sheet-inbox').open && !$('#panelHistory').hidden) loadHistory();
 }
 
 /* ---- the PC's own console ---- */
@@ -3078,6 +3183,7 @@ async function receiveEnvelope(env) {
   const expected = person(env.from).key;
   if (!expected || senderKey !== expected) { chatWarning(env.from); return; }
   const b = out.body, from = env.from, mine = from === state.youId, live = chatLoaded;
+  if (b.k === 'transfer') { receiveTransferNotice(b, from); return; }
   const cid = b.c === 'all' ? 'all' : b.c === 'p' ? 'p:' + (mine ? b.to : from) : b.c;
   if (b.k === 'group') {
     if (!b.m.includes(state.youId)) { convs.delete('g:' + b.g); return; }
@@ -3541,7 +3647,6 @@ function syncName() {
 }
 
 /* ---- history: every file that went through this PC in this session ---- */
-let historyAt = -1;
 function showTab(name) {
   const files = name === 'files';
   $('#tabFiles').setAttribute('aria-selected', String(files));
@@ -3561,13 +3666,13 @@ $('#sheet-inbox').addEventListener('keydown', (e) => {
 });
 
 async function loadHistory() {
-  historyAt = state.historyAt;
   let entries;
   try {
     entries = await (await call('/api/history')).json();
   } catch {
     return;
   }
+  entries = [...browserHistory, ...entries].sort((a, b) => b.at - a.at);
   $('#historyList').replaceChildren(...entries.map((h) => {
     const way = h.mine ? 'sent' : h.to === state.you || h.to === 'everyone' ? 'got' : 'passed';
     const arrow = el('span', { className: 'way way-' + way, textContent: way === 'sent' ? '↑' : way === 'got' ? '↓' : '⇄' });

@@ -42,7 +42,7 @@
     <span class="slide-text" aria-hidden="true">Slide to enter the city</span>
     <button class="disc slide-knob" type="button" id="introEnter" aria-label="Enter the city: slide right, or press Enter"><svg class="i"><use href="#i-right"/></svg></button>
   </div>
-  <p class="intro-line"><b>AllDrop</b>: AirDrop for all your devices.<span class="intro-extra"><br>No cables. No cloud. No app.</span><br><span class="intro-e2e"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg> End-to-end encrypted.</span></p>
+  <p class="intro-line"><b>Mac to Android.</b> Any laptop. Any OS.<span class="intro-extra"><br>Same Wi-Fi. No cables. No cloud storage.</span><br><span class="intro-e2e"><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg> End-to-end encrypted.</span></p>
   <p class="intro-credits">Made by Nishita, Aryan and Keshav</p>
 </div>
 
@@ -105,6 +105,7 @@
     </nav>
 
     <p class="toast" id="toast" role="status" aria-live="polite"></p>
+    <button id="incomingStatus" class="incoming-status" type="button" hidden aria-live="polite"></button>
     <button class="city-bubble" type="button" id="cityBubble" hidden></button>
 
     <aside class="tray" id="tray" aria-label="Files being sent" hidden>
@@ -132,14 +133,6 @@
       </div>
     </aside>
 
-    <aside class="transmission sealed-card" id="sealedCard" aria-live="polite" hidden>
-      <p class="tx-title"><svg class="i"><use href="#i-lock"/></svg> Private file, end-to-end encrypted</p>
-      <p class="tx-body" id="sealedBody"></p>
-      <button class="tx-open" type="button" id="sealedOpen">Open</button>
-      <a class="tx-open" id="sealedSave" hidden>Save</a>
-      <p class="tx-code" id="sealedCode"></p>
-    </aside>
-
     <div class="bar bar-bottom">
       <div class="to-picker-wrap">
         <button class="pill pill-to" type="button" id="sendToBtn" aria-haspopup="listbox" aria-expanded="false">
@@ -148,8 +141,8 @@
           <svg class="i to-caret" aria-hidden="true"><use href="#i-right"/></svg>
         </button>
         <select id="sendTo" class="sr-only" tabindex="-1" aria-hidden="true"><option value="*">Everyone</option></select>
-        <div class="to-menu" id="sendToMenu" role="listbox" hidden>
-          <div class="to-menu-head">Send recipient</div>
+        <div class="to-menu" id="sendToMenu" role="listbox" aria-multiselectable="true" aria-label="File recipients" hidden>
+          <div class="to-menu-head">Select people · tap again to deselect</div>
           <ul class="to-menu-list" id="sendToList"></ul>
         </div>
       </div>
@@ -226,11 +219,13 @@
       <button class="close" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
     </header>
     <div id="panelFiles" role="tabpanel" aria-labelledby="tabFiles">
+      <div id="incomingTransfers" class="empty" aria-live="polite"></div>
       <div class="inbox-toolbar" id="inboxToolbar" hidden>
         <input type="search" id="fileFilter" class="filter-input" placeholder="Search files…" aria-label="Search files" autocomplete="off" spellcheck="false">
         <button class="btn btn-small" type="button" id="downloadAll">Download all</button>
       </div>
       <ul class="files" id="fileList"></ul>
+      <p class="empty">Local network. End-to-end encrypted. No cloud storage: encrypted copies wait on the host until collected or expired; saved downloads stay on your device.</p>
       <p class="empty" id="fileEmpty">Nothing here yet. Files sent to this PC, from any phone or PC, land here and get painted on a wall.</p>
     </div>
     <div id="panelHistory" role="tabpanel" aria-labelledby="tabHistory" hidden>

@@ -1,6 +1,6 @@
 # Rooftop
 
-**AllDrop: AirDrop for *all* your devices.** iPhone to Windows, Android to Mac, Linux to anything. Files and clipboard text fly across the same Wi-Fi or hotspot, with no internet, no cables, no accounts and nothing to install on phones.
+**Mac to Android. Windows to iPhone. Linux to any laptop.** iPhone to Windows, Android to Mac, Linux to anything. Files and clipboard text fly across the same Wi-Fi or hotspot, with no internet, no cables, no accounts and nothing to install on phones.
 
 Made by **Nishita, Aryan and Keshav**.
 
@@ -10,16 +10,18 @@ Made by **Nishita, Aryan and Keshav**.
 
 - Works on **Windows, macOS, Linux** (Java host), **Android** (host app or Browser) and **iPhone** (browser).
 - Phones join by scanning a QR code, with no app needed.
-- Send files and text to **everyone** or to **one chosen device**.
+- Send files and text to **everyone** or to **one or several chosen devices**. Tap people in **Send to** to select or deselect them; choose Everyone to broadcast.
 - **Every file end-to-end encrypted:** whether it goes to one device or to everyone, a file is sealed in the sender's browser for each recipient's key, and only those browsers can open it (the PC's own page included). The PC in the middle stores only ciphertext and deletes it once every recipient has saved its copy. Files for the PC itself wait, like an unread message, until the PC's page opens them, even across restarts.
 - **Keys you can check:** each device shows a 6-digit safety code per device, and a QR code the other can scan with its camera to mark the key verified. The Send to list says which devices are verified.
 - PC-to-PC transfers are encrypted (SPAKE2 key exchange over P-256 + AES-256-GCM) and tied to the receiving PC's PIN, so a wrong PIN or someone in the middle fails before any data moves. Both terminals show a safety code.
 - **Reliable transfers:** big files go in pieces, so a dropped Wi-Fi resumes instead of starting over; failed sends retry automatically; PC-to-PC files are checked with SHA-256.
 - **Smarter sending:** pick as many files as you like, any time. Three move at once, small ones go first (a big file never waits more than 20 s behind them), and each can be cancelled or retried. A tray shows live speed, time left and a speed graph.
 - **Compression only when it helps:** text-like files are packed on the way (in the browser, or between PCs) if a sample actually shrinks; photos, videos and archives are sent as they are.
-- **Chat, end-to-end encrypted:** a room chat for everyone, personal chats, and named groups anyone can start. Unread counts, "is typing…", clickable links, and a speech bubble over the city when a message comes in. Messages to Everyone or to the PC also land on the PC's clipboard. Everything is cleared when the session ends.
+- **Chat, end-to-end encrypted:** a room chat for everyone, personal chats, and named groups anyone can start. Unread counts, "is typing…", clickable links, and a compact notification beneath the top controls when a message comes in. Messages to Everyone or to the PC also land on the PC's clipboard. Everything is cleared when the session ends.
 - **Custom names** for every phone and PC, remembered across restarts.
-- **History** of every file sent and received in the session, with speed, also after the file is removed.
+- **Inbox → History** lists direct and broadcast transfers, including browser-to-browser sends. Browser history lasts until the page reloads; host history lasts for the session, including removed files.
+- **Batch receiving:** the receiver sees the total file count before uploading finishes, plus uploaded and ready-to-save counts. Three files can upload and decrypt concurrently. Review files in the inbox or choose **Receive all**; browsers may ask to allow multiple downloads. On iPhone, supported files use one share sheet. Direct files carry a **FOR YOU** ribbon on their city banner or wall.
+- **Local, encrypted, no cloud storage.** The host temporarily holds encrypted relay copies; downloaded files remain on your devices. Keep the receiving page open until you have saved the files.
 - **Notifications** when a file or message arrives while Rooftop is in the background (and a count in the tab title).
 - A 6-digit PIN protects every session. **End session, start new** (PC panel) gives a fresh PIN, disconnects all phones and deletes received files and messages.
 - Remove any file with the **×** on it (in the city or the inbox). Phones can only remove files they sent.
@@ -156,10 +158,13 @@ java src/rooftop/Benchmark.java     # transfer speed on this PC
 # with Rooftop running and its output saved to rooftop.log (the browser checks need: npm i -D playwright)
 ROOFTOP_LOG=rooftop.log node test/e2e-browser.mjs    # files end to end: three browsers
 ROOFTOP_LOG=rooftop.log node test/chat-browser.mjs   # chat end to end: the PC's page and three phones
+node test/batch-browser.mjs                          # five devices: subset selection, parallel uploads, bulk saves, history
 node test/names-browser.mjs                          # the name screen
 node test/layout-check.mjs                           # 320 to 1920 px: no overlaps, nothing off screen; the slider
 node test/speed-browser.mjs --mb 100 --runs 5        # speed of the phone path (seal, upload, decrypt) in Chrome
 ```
+The session-reset portion of `e2e-browser.mjs` only runs with `ROOFTOP_TEST_RESET=1`; use it only with a disposable host, since it deletes received files.
+
 Set `ROOFTOP_BROWSER_CHANNEL=chrome` to use an installed Chrome instead of Playwright's own browser.
 
 ## Measured speed

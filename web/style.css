@@ -319,7 +319,10 @@ a.caption[href]:hover { color: var(--accent); }
   font: 500 11px var(--mono);
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  white-space: nowrap;
+  width: max-content;
+  max-width: calc(100% - 28px);
+  white-space: normal;
+  text-align: center;
   opacity: 0;
   transform: translate(-50%, -6px);
   pointer-events: none;
@@ -1562,13 +1565,7 @@ body.intro-on .remove-layer { visibility: hidden; }
 }
 
 /* private (end-to-end) files */
-.sealed-card { bottom: calc(max(18px, env(safe-area-inset-bottom)) + var(--pill-h) + 18px); }
-.sealed-card .tx-title { display: flex; align-items: center; gap: 6px; }
-.sealed-card .tx-title .i { width: 13px; height: 13px; }
-.tx-code { grid-column: 1 / -1; margin: 4px 0 0; color: var(--chalk-dim); font-size: 11px; line-height: 1.5; }
-.tx-code b { color: var(--chalk); letter-spacing: 0.12em; }
 .devices .code { color: var(--accent); font-size: 11px; letter-spacing: 0.08em; }
-body.intro-on .sealed-card { visibility: hidden; }
 
 @media (max-width: 767px) {
   .credits { padding: 13px 12px calc(12px + env(safe-area-inset-bottom, 0px)); font-size: 10px; letter-spacing: 0.06em; }
@@ -1894,14 +1891,14 @@ dialog.sheet-chat { width: min(860px, 100vw); }
 /* a new message where nobody is looking: a speech bubble over the city */
 .city-bubble {
   position: absolute; z-index: 3;
-  left: 50%; top: 34%;
+  left: 50%; top: 78px;
   max-width: min(320px, calc(100% - 40px));
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px 10px 10px;
-  border: 0; border-radius: 18px 18px 18px 4px;
+  border: 1px solid var(--chalk-dim); border-radius: 12px;
   background: var(--chalk); color: var(--ink);
   font: 12px/1.4 var(--mono); text-align: left; cursor: pointer;
-  box-shadow: 3px 3px 0 var(--pink), 6px 6px 0 var(--accent);
+  box-shadow: 0 4px 16px #0003;
   transform: translateX(-50%);
 }
 .city-bubble.pop { animation: bubble-in 0.5s var(--ease), bubble-out 0.6s ease-in 5.4s forwards; }
@@ -1933,7 +1930,7 @@ body.is-host .host { grid-row: 1 / span 2; align-self: start; }
 body.is-host .host-more {
   grid-column: 1; grid-row: 2;
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px;
-  align-items: stretch; /* every card the same height */
+  align-items: start; /* device lists must not stretch neighbouring cards */
   margin-top: 22px;
 }
 body.is-host .host-more .host-card { align-content: start; }
@@ -1948,10 +1945,9 @@ body.is-host .host-more[hidden] { display: none !important; }
   body.is-host .frame > .credits { grid-row: auto; }
 }
 
-/* the cards under the city: heading at the top, the rest in the middle of the space below it */
+/* Keep card content together; long device lists scroll within their own card. */
 body.is-host .host-more .host-card { display: flex; flex-direction: column; gap: 12px; }
-body.is-host .host-more .host-card > h2 { margin-bottom: auto; }
-body.is-host .host-more .host-card::after { content: ""; margin-top: auto; }
+body.is-host .host-more .key-list { max-height: 180px; overflow-y: auto; }
 body.is-host .host-more .my-key, body.is-host .host-more .notify-btn { align-self: center; }
 .intro-e2e { display: inline-flex; align-items: center; gap: 6px; }
 .intro-e2e .i { width: 0.9em; height: 0.9em; }
@@ -1968,7 +1964,7 @@ body.is-host .host-more .my-key, body.is-host .host-more .notify-btn { align-sel
 .notify-art .i { width: 32px; height: 32px; }
 .notify-art.on { color: var(--accent); }
 .notify-what { text-align: center; }
-.notify-card .notify-art { position: relative; top: -28px; } /* sit a little higher in the card */
+.notify-card .notify-art { margin: 8px 0; }
 /* the bell is the switch */
 button.notify-art { border: 0; padding: 0; cursor: pointer; transition: transform 0.25s var(--ease), color 0.2s; }
 button.notify-art:hover { transform: translate(-1px, -1px); color: var(--chalk); }
@@ -2249,3 +2245,6 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
   border-radius: 999px;
 }
 
+
+.incoming-status { position: absolute; left: 14px; bottom: 76px; z-index: 4; max-width: calc(100% - 28px); padding: 10px 14px; border: 1px solid var(--chalk-dim); border-radius: 12px; background: var(--ink); color: var(--chalk); font: 12px/1.4 var(--mono); cursor: pointer; }
+body.intro-on .incoming-status { visibility: hidden; }

@@ -64,12 +64,11 @@ await B.waitForFunction(() => [...document.querySelectorAll('#sendTo option')].s
 check(true, 'B lists Phone C and the PC as recipients with keys');
 
 async function receiveOnPhone(p, expectName) {
-  await p.waitForSelector('#sealedCard:not([hidden])', { timeout: 20000 });
-  await p.click('#sealedOpen');
-  await p.waitForSelector('#sealedSave:not([hidden])', { timeout: 30000 });
-  const [download] = await Promise.all([p.waitForEvent('download'), p.click('#sealedSave')]);
+  await p.waitForFunction((name) => localFiles.some((f) => f.name === name), expectName, { timeout: 30000 });
+  await p.evaluate(() => { showTab('files'); openSheet('inbox'); });
+  const [download] = await Promise.all([p.waitForEvent('download'), p.getByRole('link', { name: `Save ${expectName}`, exact: true }).click()]);
   const body = readFileSync(await download.path());
-  await p.waitForSelector('#sealedCard', { state: 'hidden', timeout: 10000 });
+  await p.keyboard.press('Escape');
   return { body, name: download.suggestedFilename(), card: expectName };
 }
 
@@ -128,6 +127,8 @@ await B.waitForFunction(() => [...document.querySelectorAll('#sendTo option')].s
 const keylessOption = await B.$eval('#sendTo', (s) => { const o = [...s.options].find((x) => x.textContent.includes('No key phone')); return { text: o.textContent, disabled: o.disabled }; });
 check(keylessOption.disabled && keylessOption.text.includes('no key yet'), `a device without a key is marked and cannot be picked: "${keylessOption.text}"`);
 
+// Opt in only on a disposable host: ending the session deletes its received files.
+if (process.env.ROOFTOP_TEST_RESET === '1') {
 // 5. a new session means new keys
 const before = (await state(A)).devices.find((d) => d.name === 'Phone B')?.key;
 await A.click('#newSession');
@@ -137,6 +138,7 @@ const fresh = await (await fetch('http://localhost:8080/api/connect')).json();
 await B.goto(fresh.url);
 await A.waitForFunction((old) => fetch('/api/state').then((r) => r.json()).then((s) => { const k = s.devices.find((d) => d.name === 'Phone B')?.key; return k && k !== old; }), before, { timeout: 20000, polling: 500 });
 check(!!before, 'after the session ends, Phone B comes back with a brand new key');
+}
 
 check(errors.length === 0, 'no page errors ' + JSON.stringify(errors));
 
