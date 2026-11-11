@@ -701,7 +701,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     f.fillText(name, w * 0.47, h * 0.42);
     f.font = `600 ${h * 0.1}px ${MONO}`;
     f.fillStyle = shade(color, 0.7);
-    f.fillText((file.forYou ? 'for you · from ' : 'from ') + (file.from || '').slice(0, file.forYou ? 10 : 18), w * 0.47, h * 0.64);
+    f.fillText((file.forYou ? `${file.recipientView ? 'for you' : `to ${file.to || 'you'}`} · from ` : 'from ') + (file.from || '').slice(0, file.forYou ? 10 : 18), w * 0.47, h * 0.64);
     if (file.forYou) forYouTag(f, w, h);
   }
 
@@ -709,12 +709,13 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   function forYouTag(f, w, h) {
     const s = Math.max(9, Math.min(w, h) * 0.13);
     f.font = `800 ${s}px ${MONO}`;
-    const tw = f.measureText('FOR YOU').width + s;
+    const label = (file.recipientView ? 'FOR YOU' : file.to && file.to !== 'everyone' ? `TO ${file.to}` : 'FOR YOU').toUpperCase().slice(0, 16);
+    const tw = Math.min(w * 0.58, f.measureText(label).width + s);
     f.fillStyle = '#e2483d';
     f.fillRect(w - tw - 6, 6, tw, s * 1.6);
     f.fillStyle = '#fbf3e6';
     f.textAlign = 'center'; f.textBaseline = 'middle';
-    f.fillText('FOR YOU', w - 6 - tw / 2, 6 + s * 0.8);
+    f.fillText(label, w - 6 - tw / 2, 6 + s * 0.8, tw - s * 0.35);
   }
 
   function paintInvite(f, w, h) {
@@ -2681,7 +2682,7 @@ async function receiveOnPhone(item) {
   let name = got.name;
   for (let n = 2; localFile(name) || state.files.some((f) => f.name === name); n++) name = got.name.replace(/(\.[^.]*)?$/, ` (${n})$1`);
   localFiles.unshift({
-    name, transferId: got.transferId, size: got.blob.size, at: Date.now(), mine: false, removable: true, local: true,
+    name, transferId: got.transferId, recipientView: true, size: got.blob.size, at: Date.now(), mine: false, removable: true, local: true,
     from: got.sender ? got.sender.name : 'a device that has left', to: got.everyone ? 'everyone' : state.you, forYou: !got.everyone,
     url: URL.createObjectURL(got.blob), blob: got.blob, sealedId: item.id, acked: false, code: got.code, senderKey: got.senderKey,
   });

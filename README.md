@@ -1,201 +1,100 @@
 # Rooftop
 
-**Mac to Android. Windows to iPhone. Linux to any laptop.** iPhone to Windows, Android to Mac, Linux to anything. Files and clipboard text fly across the same Wi-Fi or hotspot, with no internet, no cables, no accounts and nothing to install on phones.
+**Move files between Mac, Android, Windows, Linux and iPhone on the same local network.** Rooftop is a small, open-source, AirDrop-style transfer app with a playful rooftop city. No account, cables, cloud upload or phone app required: phones and tablets join from their browser.
 
-Made by **Nishita, Aryan and Keshav**.
+> Rooftop uses your local Wi-Fi or hotspot. Browser-to-browser files are encrypted end to end; the host temporarily relays encrypted copies and removes them after recipients save them or the relay expires them. Files you download stay on your devices. The host's own inbox stores files it receives in the usual way.
 
----
+## Screenshots
 
-## Features
+**City and rooftop murals**
 
-- Works on **Windows, macOS, Linux** (Java host), **Android** (host app or Browser) and **iPhone** (browser).
-- Phones join by scanning a QR code, with no app needed.
-- Send files and text to **everyone** or to **one or several chosen devices**. Tap people in **Send to** to select or deselect them; choose Everyone to broadcast.
-- **Every file end-to-end encrypted:** whether it goes to one device or to everyone, a file is sealed in the sender's browser for each recipient's key, and only those browsers can open it (the PC's own page included). The PC in the middle stores only ciphertext and deletes it once every recipient has saved its copy. Files for the PC itself wait, like an unread message, until the PC's page opens them, even across restarts.
-- **Keys you can check:** each device shows a 6-digit safety code per device, and a QR code the other can scan with its camera to mark the key verified. The Send to list says which devices are verified.
-- PC-to-PC transfers are encrypted (SPAKE2 key exchange over P-256 + AES-256-GCM) and tied to the receiving PC's PIN, so a wrong PIN or someone in the middle fails before any data moves. Both terminals show a safety code.
-- **Reliable transfers:** big files go in pieces, so a dropped Wi-Fi resumes instead of starting over; failed sends retry automatically; PC-to-PC files are checked with SHA-256.
-- **Smarter sending:** pick as many files as you like, any time. Three move at once, small ones go first (a big file never waits more than 20 s behind them), and each can be cancelled or retried. A tray shows live speed, time left and a speed graph.
-- **Compression only when it helps:** text-like files are packed on the way (in the browser, or between PCs) if a sample actually shrinks; photos, videos and archives are sent as they are.
-- **Chat, end-to-end encrypted:** a room chat for everyone, personal chats, and named groups anyone can start. Unread counts, "is typing…", clickable links, and an unread badge on the Chat button, without floating message previews over the city. Messages to Everyone or to the PC also land on the PC's clipboard. Everything is cleared when the session ends.
-- **Custom names** for every phone and PC, remembered across restarts.
-- **Inbox → History** lists direct and broadcast transfers, including browser-to-browser sends. Browser history lasts until the page reloads; host history lasts for the session, including removed files.
-- **Batch receiving:** the receiver sees the total file count before uploading finishes, plus uploaded and ready-to-save counts. Three files can upload and decrypt concurrently. Review files in the inbox or choose **Receive all**; browsers may ask to allow multiple downloads. On iPhone, supported files use one share sheet. Direct files carry a **FOR YOU** ribbon on their city banner or wall.
-- **Local, encrypted, no cloud storage.** The host temporarily holds encrypted relay copies; downloaded files remain on your devices. Keep the receiving page open until you have saved the files.
-- **Notifications** when a file or message arrives while Rooftop is in the background (and a count in the tab title).
-- A 6-digit PIN protects every session. **End session, start new** (PC panel) gives a fresh PIN, disconnects all phones and deletes received files and messages.
-- Remove any file with the **×** on it (in the city or the inbox). Phones can only remove files they sent.
-- Received files appear on billboards and walls of a small explorable city, with a day and night mode. Slide to enter it from the opening screen.
-- **Instant updates:** each page keeps one request open that the PC answers the moment a file or message arrives, instead of waiting for the next poll.
+![Rooftop city with file murals and street lights](docs/screenshots/city.png)
 
-## Quick start
+**Connect devices**
 
-You need **Java 22 or newer** ([adoptium.net](https://adoptium.net)). There is no build step and there are no libraries.
+![Host screen with its QR and PIN safely hidden](docs/screenshots/connect.png)
 
-| PC | Run |
-|---|---|
-| Windows | double-click `start-windows.bat` |
-| macOS | double-click `start-mac.command` (first time: right-click, Open) |
-| Linux | `./start-linux.sh` |
+## Get started
 
-Or from this folder: `java src/rooftop/Main.java`
+You need Java 22 or newer on the computer that hosts the session.
 
-1. **On the PC**, open `http://localhost:8080`. You see the QR code, PIN, connected devices and messages.
-2. **On a phone**, scan the QR code. On the first visit the browser says "not private": tap *Advanced, Proceed* (Android) or *Show details, Visit this website* (iPhone). The connection is still encrypted; the certificate is simply self-signed.
-3. **On another PC**, run Rooftop there too. The PCs find each other automatically.
-
-Received files are saved to `~/Rooftop`.
-
-> **Same network only.** Home Wi-Fi and phone hotspots work. College and cafe Wi-Fi often block devices from seeing each other; use a hotspot there. On Windows, allow Java through the firewall and set the network to Private.
-
-### Phones can't connect?
-
-1. **Same network?** The phone must be on the same Wi-Fi or hotspot as the PC, with mobile data and VPNs off. If the PC's Wi-Fi is the one the phone shares (or the other way round), that works too.
-2. **Fresh link.** Scan the QR code again; the PIN changes with each new session.
-3. **The "not private" warning** is expected; tap through it (see step 2 above). If the page never loads at all, it is almost always the PC's firewall.
-4. **Let Rooftop through the firewall** (once per PC). Rooftop uses 8443/TCP for phones, 45454/UDP and 45455/TCP for other PCs.
-   - **Windows:** when the "Windows Defender Firewall" box appears on first start, tick *Private networks* and click *Allow*. If you missed it: *Settings, Network & internet*, set the Wi-Fi to *Private*; then *Windows Security, Firewall & network protection, Allow an app through firewall*, and tick Java (OpenJDK Platform binary) for Private.
-   - **macOS:** click *Allow* when asked whether Java may accept incoming connections. If you missed it: *System Settings, Network, Firewall, Options*, and set Java to *Allow incoming connections*.
-   - **Linux (ufw):** `sudo ufw allow 8443/tcp && sudo ufw allow 45454/udp && sudo ufw allow 45455/tcp`. With firewalld: `sudo firewall-cmd --permanent --add-port=8443/tcp --add-port=45454/udp --add-port=45455/tcp && sudo firewall-cmd --reload`. `start-linux.sh` prints these for you when it sees the firewall is on.
-5. **Still nothing?** College and cafe Wi-Fi often keep devices apart. Use a phone hotspot instead.
-
-### Android app
-
-`Rooftop.apk` (Android 10+) runs the host on the phone itself, so no laptop is needed. Other phones and iPhones join it through their browser.
-
-## How it works
-
-```
- Phone (browser) --HTTPS :8443, files sealed end to end--> Host (PC or Android app) <--TCP :45455, encrypted, PIN-checked--> Other PC
-                                       |
-                              UDP broadcast :45454  (devices announce themselves)
-```
-
-| Port | Used for |
-|---|---|
-| 8080 | Web page for the host itself (localhost only) |
-| 8443 | Web page for phones (HTTPS) |
-| 45454 / UDP | Discovery |
-| 45455 / TCP | PC-to-PC transfers |
-
-## Java architecture
-
-All Java source code lives in **`src/rooftop/`**, split into packages:
-
-```
-src/rooftop/
-├── Main.java            entry point
-├── Rooftop.java         wires all the parts together
-├── Platform.java        interface: what differs between desktop and Android
-├── DesktopPlatform.java desktop version (AWT clipboard, ~/Rooftop folder)
-├── SelfTest.java        checks for the risky parts
-├── Benchmark.java       transfer speed test
-├── model/      Device hierarchy, payloads, Transfer, Progress, Inbox, SealedBox (end-to-end files), ChatBox, History
-├── net/        Discovery (UDP), TransferServer/Client (TCP), SendQueue, Frames, Http, WebServer
-├── security/   SecureChannel (SPAKE2 + AES-GCM), Spake2, Certificates, PinGuard, FileNames
-├── error/      custom exceptions
-├── util/       Registry, Texts, ActivityLog, Streams, Threads, QrCode
-├── cli/        Shell and the @Command annotation
-└── ui/         RadarApplet
-```
-
-Other folders:
-
-| Folder | Contents |
-|---|---|
-| `web/` | The page (HTML, CSS, JS, font) and `e2e.js`, the browser's end-to-end encryption. No frameworks. |
-| `test/` | Browser checks (end to end, chat, names, layout, speed); `SelfTest.java` covers the Java side |
-| `android/` | Android host app: `AndroidPlatform`, `MainActivity`, `RooftopService`, `build.sh` |
-
-## Security
-
-| Area | Protection |
-|---|---|
-| Files between browsers | End to end, every file, to one device or to everyone (details below) |
-| Chat | End to end, like the files: every message, typing signal, group name and group change is sealed in the sender's browser with a fresh AES-256-GCM key, wrapped for each recipient's session key (one-time ECDH + the sender's key, HKDF), so only the people in that conversation can read it and a swapped sender key is caught. Padded to at least 256 bytes, then to multiples of 64. The PC keeps only sealed envelopes in memory, with a number, the sender's id, the recipient ids, the size and the time, and clears them at session end. Conversations between other devices never show up on the PC. The PC's clipboard gets messages only through its own page, which decrypts them |
-| Phone ↔ host | HTTPS (TLS 1.3) with a certificate generated on first run; the page itself and the sealed files and messages travel this way |
-| PC ↔ PC | Fresh ECDH (P-256) key per transfer and SPAKE2 (RFC 9382) with the receiving PC's PIN, bound together over the whole handshake; both sides prove they got the same keys before any data, so a wrong PIN or a man in the middle fails right away and counts as a wrong try. Both terminals show the same safety code. Then AES-256-GCM on every chunk; tampering stops the transfer |
-| Access | Random 6-digit PIN per run (no palindromes); 10 wrong tries blocks that device |
-| File names | `../../x` becomes `x`; duplicates become `name (2).ext`; half-received files are deleted |
-| Downloads | Served with `Content-Security-Policy: sandbox` and `nosniff` |
-| Browser keys | A new ECDH P-256 key pair per session in every browser (phones and the PC's own page); the private half is non-extractable and stays in IndexedDB. A device without a key is shown as such and is never sent a file or a message |
-| Sealing | A fresh random AES-256-GCM key and a random id per file; 1 MB chunks whose nonce is the file id, a "last chunk" flag and the chunk number, so nothing can be reordered or cut off. The file name travels encrypted. The file key is wrapped separately for each recipient with HKDF-SHA-256 over two ECDH results (a one-time key with the recipient's key, and the sender's key with the recipient's key), so a swapped sender key fails to open. Sizes are padded (to 64 KB, then to a sixteenth of the nearest power of two) |
-| On the PC | Only ciphertext with the wrapped keys, in a hidden temp folder, never in the inbox. It remembers only the transfer id, the recipient ids, the padded size and the arrival time. Transfers between other devices never show up in its page, city, inbox, history, log or terminal. It deletes the bytes and the record after the last recipient's acknowledgement. Other devices' copies that nobody collects go at session end or after 1 hour. Files for the PC are held like an unread message: in a hidden folder next to the inbox, through restarts and session ends, until the PC's own page decrypts them (it keeps its older session keys for this) and saves them into the inbox |
-| Verification | A 6-digit safety code from both public keys, and a QR code with a 120-bit key fingerprint that another device scans to mark the key verified (remembered per key) |
-| Integrity | PC-to-PC files carry a SHA-256 of the whole file; a mismatch discards the copy and the sender retries |
-
-**Known limits:**
-- Browsers load Rooftop's code from the host, so a host running modified code could serve a page that leaks keys or files. The safety code and the QR check catch a swapped key, not a swapped page.
-- The host sees that transfers and messages happen: their padded size, their timing, and who sends to whom. It cannot read them. Typing signals are kept only a few seconds, so the host can tell them apart from messages.
-- The certificate is self-signed, so an attacker on the same Wi-Fi who can redirect traffic could pose as the host; passive sniffing sees nothing useful. Verifying keys protects files and messages even then.
-- Texts sent with the terminal `text` command between two PCs are encrypted on the way (PIN-checked) and readable on the receiving PC, like files that land there.
-- Files compressed before sealing can reveal how well they compress, through their padded size.
-- Files that land on the PC (sent to it, to everyone, or from another PC) are stored there unencrypted, like any download.
-- A PC only receives end-to-end files while its own page (`http://localhost:8080`) is open. Two PCs need this version on both sides to talk to each other.
-
-## Terminal commands
-
-Type these in the window where Rooftop runs:
-
-| Command | Does |
-|---|---|
-| `devices` | list PCs and phones on this Wi-Fi |
-| `send <pc> <pin> <file>` | send a file to another PC |
-| `text <pc> <pin> <message>` | send text to another PC's clipboard |
-| `inbox`, `rm <name>` | list or delete received files |
-| `history` | files sent and received in this session |
-| `name <new name>` | rename this PC |
-| `qr` | show the link, QR code and PIN again |
-| `session` | end this session: new PIN, phones disconnected, messages and files deleted |
-| `radar` | open the radar window (applet) |
-| `log`, `help`, `quit` | |
-
-## Testing
+**Linux:**
 
 ```bash
-java src/rooftop/SelfTest.java      # PIN, file names, encryption, tamper checks, sealed storage, PC-to-PC PIN handshake
-java src/rooftop/Benchmark.java     # transfer speed on this PC
-# with Rooftop running and its output saved to rooftop.log (the browser checks need: npm i -D playwright)
-ROOFTOP_LOG=rooftop.log node test/e2e-browser.mjs    # files end to end: three browsers
-ROOFTOP_LOG=rooftop.log node test/chat-browser.mjs   # chat end to end: the PC's page and three phones
-node test/batch-browser.mjs                          # five devices: subset selection, parallel uploads, bulk saves, history
-node test/names-browser.mjs                          # the name screen
-node test/layout-check.mjs                           # 320 to 1920 px: no overlaps, nothing off screen; the slider
-node test/speed-browser.mjs --mb 100 --runs 5        # speed of the phone path (seal, upload, decrypt) in Chrome
+./start-linux.sh
 ```
-The session-reset portion of `e2e-browser.mjs` only runs with `ROOFTOP_TEST_RESET=1`; use it only with a disposable host, since it deletes received files.
 
-Set `ROOFTOP_BROWSER_CHANNEL=chrome` to use an installed Chrome instead of Playwright's own browser.
+**macOS:** open `start-mac.command` (first time: right-click, Open). **Windows:** double-click `start-windows.bat`.
 
-## Measured speed
+Or, from the project folder on any desktop OS:
 
-Measured on one laptop (Intel i7-13650HX, 20 threads, 22 GB RAM, Linux, Java 25, Chrome), 7 Oct 2026.
-Both ends ran on the same machine, so the network part is loopback: these are Rooftop's own limits, not Wi-Fi's.
+```bash
+java src/rooftop/Main.java
+```
 
-| Path | What is timed | Result (median) |
-|---|---|---|
-| PC to PC, encrypted channel only | `Benchmark.java`, 200 MB, 5 runs per chunk size | 1349 MB/s at the default 128 KB chunk (1190 to 1349 MB/s across 64 KB to 1 MB) |
-| PC to PC, the real send | `send` in the terminal, 300 MB, 3 runs: SPAKE2 handshake, encryption, SHA-256 on both ends, written to disk | 614 MB/s (539 to 711) |
-| Phone page to PC, sending | `test/speed-browser.mjs`, 100 MB, 5 runs: sealed in the page and uploaded over HTTPS | 111 MB/s |
-| Phone page to PC, end to end | the same, until the PC's own page has downloaded, decrypted and filed it in the inbox | 65 MB/s |
+The host opens Rooftop at [http://localhost:8080](http://localhost:8080). On a phone, scan the QR code shown in the host panel. Accept the browser's first-visit certificate warning: Rooftop uses a self-signed certificate for its local HTTPS connection. The QR code and PIN are for the current session; share them only with people you want to connect.
 
-What changed the browser numbers (same test, before, after):
-- Chrome uploads raw bytes at about 12 MB/s but a Blob at about 600 MB/s: pieces now go up as Blobs. Sending went from 11 to 62 MB/s.
-- The PC's page used to notice a new file only on its next 3-second poll; now it keeps one request open that the PC answers the moment a file is complete. End to end went from 8 to 44 MB/s.
-- Sealed 1 MB chunks now go up 4 at a time (fewer connections and TLS handshakes): sending 111 MB/s, end to end 65 MB/s.
+Select **Send files**, choose one or more files, then choose Everyone or tap individual people under **Send to**. The recipient sees the incoming file count and transfer progress. Their files appear in the inbox and on their rooftop; they can preview them or choose **Receive all**. A browser may ask permission before downloading multiple files.
 
-Over real Wi-Fi the radio is the limit. This laptop's link reported 487 Mbit/s transmit (about 61 MB/s at most, usually half that in practice), so expect Wi-Fi speed, not the numbers above. To measure it: run `java src/rooftop/Benchmark.java serve` on one PC and `java src/rooftop/Benchmark.java to <ip>` on another, or send a big file from a phone and read the speed in the sending tray.
+## What it does
 
-## Building the APK
+- Sends files to Everyone or a chosen set of connected devices. Up to three files upload or decrypt at once.
+- Shows direct-to-you files with a **FOR YOU** label; senders see **TO <recipient>** on direct transfers.
+- Keeps a session history under **Inbox → History**, including browser-to-browser transfers and transfers whose files were removed.
+- Transfers clipboard text and provides end-to-end encrypted room, private and group chat.
+- Lets phones join from their browser and lets the Android app host a session itself.
+- Runs on a local network, without a cloud account or file-hosting service.
 
-Needs a JDK and the Android SDK (`ANDROID_HOME`, default `~/Android/sdk`, build-tools 35):
+Browser transfer history lasts until that browser reloads. The host's session history lasts until the session ends. Mobile browsers can restrict background work, audio before a user gesture, and multiple downloads. Keep the receiving page open while files are being saved.
+
+## Android app
+
+`Rooftop.apk` is the Android host app (Android 10+). Install it on an Android device to host Rooftop without a computer; other devices join through the QR code in the app. Build it yourself with an Android SDK (platform 35, build-tools 35.0.0) and JDK:
 
 ```bash
 sh android/build.sh
 ```
 
-The signing key (`android/rooftop-release.keystore`) is not in this repository. The script creates one if it is missing. Keep yours safe: Android only installs updates signed with the same key.
+The build writes `Rooftop.apk` in the project root. The signing key is `android/rooftop-release.keystore`; keep the same key to install future APK updates over the existing app.
+
+## Network and privacy
+
+All devices need to be reachable on the same Wi-Fi or phone hotspot. Some public, school or office Wi-Fi networks isolate connected devices; a hotspot is a useful alternative. Allow Rooftop through the computer's firewall if devices cannot connect.
+
+| Port | Purpose |
+|---|---|
+| 8080 | Host's local web page |
+| 8443/TCP | HTTPS for phones and browsers |
+| 45454/UDP | Discover other Rooftop computers |
+| 45455/TCP | Encrypted computer-to-computer transfers |
+
+Browser-to-browser files are encrypted on the sender's device for each chosen recipient. The host relays ciphertext, not file contents, and deletes it once recipients acknowledge their copies. Uncollected phone copies expire after one hour. A file addressed to the host is retained until its own page opens and saves it. Files received by the host are saved in `~/Rooftop` and are not encrypted at rest by Rooftop.
+
+Phone-to-host web traffic uses HTTPS. Computer-to-computer transfer uses a PIN-checked key exchange and AES-GCM encryption. The self-signed certificate warning is expected; verifying a device's safety code helps detect a changed device key. As with any app served by a host, a compromised host could serve modified browser code.
+
+## Project layout
+
+- `web/` — browser UI, city renderer and end-to-end encryption.
+- `src/rooftop/` — Java desktop host, networking, transfer queue and security.
+- `android/` — Android host app and APK build script.
+- `test/` — browser-based checks; `src/rooftop/SelfTest.java` checks Java security and transfer behavior.
+
+## Checks
+
+```bash
+java src/rooftop/SelfTest.java
+```
+
+Browser checks need Playwright and a local Rooftop host. With Rooftop running, use:
+
+```bash
+ROOFTOP_PLAYWRIGHT=/path/to/playwright/index.mjs node test/e2e-browser.mjs
+ROOFTOP_PLAYWRIGHT=/path/to/playwright/index.mjs node test/chat-browser.mjs
+ROOFTOP_PLAYWRIGHT=/path/to/playwright/index.mjs node test/batch-browser.mjs
+```
+
+The session-reset section in `e2e-browser.mjs` is opt-in (`ROOFTOP_TEST_RESET=1`) because ending a session deletes the host's received files.
 
 ## Credits
 
-See [THIRD_PARTY.md](THIRD_PARTY.md) for the font and icon licenses.
+See [THIRD_PARTY.md](THIRD_PARTY.md) for font and icon licenses.
