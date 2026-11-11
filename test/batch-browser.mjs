@@ -71,10 +71,7 @@ try {
   await sender.waitForFunction((stamp) => [...document.querySelectorAll('#historyList li')].filter((li) => li.textContent.includes(`batch-${stamp}-`)).length === 4, stamp);
   console.log('ok  sender history survives tray cleanup; excluded peers get no files or batch metadata');
   await a.setViewportSize({ width: 390, height: 844 });
-  await a.evaluate(() => popBubble(conv('all'), { from: state.meId, text: 'A compact notification', id: 'preview' }));
   await a.screenshot({ path: '/tmp/rooftop-batch-mobile.png' });
-  const fits = await a.locator('#cityBubble').evaluate((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top < 150; });
-  assert.ok(fits, 'chat notification stays near controls and within mobile viewport');
   const host = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   host.on('pageerror', (e) => errors.push(e.message));
   await host.goto('http://localhost:8080/');

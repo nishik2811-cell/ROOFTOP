@@ -2,7 +2,7 @@
 //   ROOFTOP_LOG=<file the terminal output goes to> node test/chat-browser.mjs
 // Needs Playwright (npm i -D playwright, or ROOFTOP_PLAYWRIGHT=<path to playwright's index.mjs>).
 // A is this PC's own page; B, C and D are phones.
-//   1. B writes to Everyone: A, C and D read it (C through the bubble in the city, D through its unread count),
+//   1. B writes to Everyone: A, C and D read it (through their unread counts),
 //      and A's page puts it on the PC's clipboard.
 //   2. B writes to C in person: C reads it; A's page, state, history and log, and D, see nothing of it.
 //   3. B makes a group with C: C sees the group and its messages and who is typing; D and A never see it or its name.
@@ -60,17 +60,35 @@ const waitFor = (p, text, timeout = 12000) => p.locator('#textList .bubble', { h
 const knows = (p, text) => p.evaluate((t) => JSON.stringify([...convs.values()].map((c) => [c.name, c.msgs.map((m) => m.text)])).includes(t) || document.body.innerText.includes(t), text);
 async function close(p) { if (await isOpen(p)) await p.keyboard.press('Escape'); }
 
+// Unlock audio with a user gesture; sound must work even with desktop notifications off.
+await C.click('#chatBtn');
+await close(C);
+await C.evaluate(() => {
+  local.set('rooftop-notify', 'off');
+  local.set('rooftop-sound', 'on');
+  window.testOscillators = 0;
+  const create = audio.createOscillator.bind(audio);
+  audio.createOscillator = () => { window.testOscillators++; return create(); };
+});
+
 // 1. Everyone
 const hello = `hello room ${stamp}`;
 await openConv(B, 'Everyone');
 await say(B, hello);
-await C.locator('#cityBubble').waitFor({ state: 'visible', timeout: 12000 });
-const bubble = await C.locator('#cityBubble').innerText();
-const dot = await C.locator('#chatDot').innerText();
-check(bubble.includes('Phone B') && bubble.includes('hello room') && dot === '1', `C gets a bubble in the city ("${bubble.replace(/\n/g, ' ')}") and an unread count of ${dot}`);
-await C.click('#cityBubble');
-await C.locator('#threadTitle', { hasText: 'Everyone' }).waitFor({ timeout: 5000 });
-check(await C.locator(`#textList .msg.flash .bubble`, { hasText: hello }).count() === 1, 'tapping the bubble opens Everyone at that message');
+await C.waitForFunction(() => document.querySelector('#chatDot').textContent === '1');
+check(await C.evaluate(() => testOscillators >= 2 && audio.state === 'running'), 'sound schedules both notes with desktop notifications off');
+const muteWorks = await C.evaluate(() => {
+  const before = testOscillators;
+  local.set('rooftop-sound', 'off');
+  notify('Muted test', 'No chime');
+  local.set('rooftop-sound', 'on');
+  return testOscillators === before;
+});
+check(muteWorks, 'the speaker mute setting suppresses the chime');
+check(await C.locator('#cityBubble').count() === 0, 'new messages use the unread badge without a floating city popup');
+await openConv(C, 'Everyone');
+await waitFor(C, hello);
+check(await C.locator('#chatDot').isHidden(), 'opening the conversation clears its unread badge');
 await openList(D);
 await row(D, 'Everyone').locator('.badge-n', { hasText: '1' }).waitFor({ timeout: 12000 });
 check(true, 'D sees an unread count of 1 next to Everyone in the switcher');
@@ -92,7 +110,7 @@ await openList(B);
 await row(B, 'Phone C').click();
 await B.locator('#threadTitle', { hasText: 'Phone C' }).waitFor();
 await say(B, secret);
-await C.locator('#cityBubble').waitFor({ state: 'visible', timeout: 12000 });
+await C.waitForFunction(() => document.querySelector('#chatDot').textContent === '1');
 await openConv(C, 'Phone B');
 await waitFor(C, secret);
 const link = await C.locator('#textList .bubble a').last().getAttribute('href');

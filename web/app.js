@@ -246,9 +246,18 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   const walls = buildings.filter((b) => b.h >= 3 && !billboardTowers.includes(b) && inView(centerOf(endFace(b)), 70)
     && !hidden(centerOf(endFace(b)), b.depth + 0.01));
 
+  const lamps = [];
+  for (const [, curb] of AVENUES) for (let z = 1.5; z < 54; z += 3.5) {
+    const x = curb + 0.2;
+    if (!onLand(x, z, 0.5) || z % (BD + ST) > BD) continue;
+    if (x > PLAZA.x0 + 1 && x < PLAZA.x1 - 1 && z > PLAZA.z0 && z < PLAZA.z1) continue;
+    lamps.push({ x, z });
+  }
+
   const drawables = [
     ...buildings.filter((b) => b.box.x1 > view.x0 - 40 && b.box.x0 < view.x1 + 40 && b.box.y0 < view.y1 && iso(b.x0, 0, b.z0)[1] > horizon + 44).map((b) => ({ kind: 'building', item: b, key: b.depth })),
     ...trees.filter((t) => iso(t.x, 0, t.z)[1] > horizon + 44).map((t) => ({ kind: 'tree', item: t, key: t.x * 2 + t.z * 2 })),
+    ...lamps.map((l) => ({ kind: 'lamp', item: l, key: (l.x + l.z) * 2 })),
   ].sort((a, b) => a.key - b.key);
 
   /* ---- moving life: cars on the avenues, sailboats at sea, people in the plaza ---- */
@@ -728,8 +737,35 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     const c = world.getContext('2d');
     c.setTransform(k, 0, 0, k, -view.x0 * k, -view.y0 * k);
     drawBackdrop(c, p);
-    for (const d of drawables) (d.kind === 'building' ? drawBuilding : drawTree)(c, d.item, p);
+    if (p.lit) for (const l of lamps) {
+      const [x, y] = iso(l.x + 0.6, 0, l.z);
+      c.save(); c.translate(x, y); c.scale(1, 0.5);
+      const glow = c.createRadialGradient(0, 0, 0, 0, 0, 22);
+      glow.addColorStop(0, 'rgba(255,207,115,0.16)');
+      glow.addColorStop(1, 'rgba(255,207,115,0)');
+      c.fillStyle = glow; c.beginPath(); c.arc(0, 0, 22, 0, Math.PI * 2); c.fill(); c.restore();
+    }
+    for (const d of drawables) (d.kind === 'building' ? drawBuilding : d.kind === 'lamp' ? drawLamp : drawTree)(c, d.item, p);
     requestDraw();
+  }
+
+  function drawLamp(c, lamp, p) {
+    const [x, y] = iso(lamp.x, 0, lamp.z);
+    const [hx, hy] = iso(lamp.x + 0.6, 1.5, lamp.z);
+    c.save();
+    c.fillStyle = '#303940';
+    c.beginPath(); c.ellipse(x, y, 3.2, 1.8, 0, 0, Math.PI * 2); c.fill();
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    c.strokeStyle = '#28323a'; c.lineWidth = 2.6;
+    c.beginPath(); c.moveTo(x, y - 1); c.lineTo(x, y - 30); c.quadraticCurveTo(x, hy - 3, hx, hy); c.stroke();
+    c.strokeStyle = '#7b8588'; c.lineWidth = 0.7;
+    c.beginPath(); c.moveTo(x - 0.6, y - 3); c.lineTo(x - 0.6, y - 29); c.stroke();
+    c.fillStyle = '#28323a';
+    c.beginPath(); c.ellipse(hx, hy, 5, 2.4, -0.3, 0, Math.PI * 2); c.fill();
+    c.fillStyle = p.lit ? '#fff0bc' : '#b4bec0';
+    if (p.lit) { c.shadowColor = '#ffcf73'; c.shadowBlur = 4; }
+    c.beginPath(); c.ellipse(hx, hy + 1.3, 3.5, 1, -0.3, 0, Math.PI * 2); c.fill();
+    c.restore();
   }
 
   function scheduleRender() {
@@ -956,17 +992,6 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     }
     for (const person of people) {
       drawPerson(person, p, dt, now);
-    }
-    if (p.lit) { // night: street lamps along the avenues
-      for (const [a, b] of AVENUES) for (let z = 1; z < 40; z += 4) {
-        if (!onLand(b, z, 0.5)) continue;
-        const [lx, ly] = iso(b + 0.2, 0, z);
-        if (hidden([lx, ly - 8], b * 2 + z * 2)) continue;
-        ctx.fillStyle = 'rgba(255,207,115,0.18)';
-        ctx.beginPath(); ctx.arc(lx, ly - 10, 14, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = p.lit;
-        ctx.fillRect(lx - 1.5, ly - 12, 3, 3);
-      }
     }
   }
 
@@ -3219,7 +3244,6 @@ async function receiveEnvelope(env) {
   const looking = $('#sheet-notes').open && openConv === cid && !document.hidden;
   if (looking) markConvRead(c);
   else {
-    popBubble(c, msg);
     notify(c.kind === 'p' ? person(from).name : `${person(from).name} in ${convName(c)}`, msg.text, 'message');
   }
   // this PC's clipboard: messages for the PC (to everyone, or to it in person) land there, decrypted by this page only
@@ -3250,28 +3274,6 @@ function markConvRead(c) {
   const top = c.msgs.reduce((a, m) => Math.max(a, m.seq || 0), 0);
   if (top > (chatRead[c.id] || 0)) { chatRead[c.id] = top; session.set('rooftop-chat-read', JSON.stringify(chatRead)); }
 }
-
-/* ---- the city bubble: a new message where nobody is looking ---- */
-let bubbleTimer = 0;
-function popBubble(c, msg) {
-  const b = $('#cityBubble');
-  b.replaceChildren(avatar(person(msg.from)), el('span', { className: 'cb-text' },
-    el('b', { textContent: c.kind === 'p' ? person(msg.from).name : `${person(msg.from).name} · ${convName(c)}` }),
-    el('span', { textContent: msg.text.length > 70 ? msg.text.slice(0, 68) + '…' : msg.text })));
-  b.dataset.conv = c.id;
-  b.dataset.msg = msg.id;
-  b.hidden = false;
-  b.classList.remove('pop');
-  void b.offsetWidth;
-  b.classList.add('pop');
-  clearTimeout(bubbleTimer);
-  bubbleTimer = setTimeout(() => { b.hidden = true; }, 6000);
-}
-$('#cityBubble').addEventListener('click', (e) => {
-  const b = e.currentTarget;
-  b.hidden = true;
-  openChat(b.dataset.conv, b.dataset.msg);
-});
 
 /* ---- the chat sheet: a switcher, a conversation, and a "new group" form ---- */
 function showPane(name) {
@@ -3695,7 +3697,7 @@ const canNotify = 'Notification' in window && window.isSecureContext;
 const notifyOn = () => canNotify && Notification.permission === 'granted' && local.get('rooftop-notify') === 'on';
 
 function notify(title, body, kind = 'message') {
-  if (local.get('rooftop-notify') === 'on') chime(kind);
+  chime(kind);
   if (navigator.vibrate && !document.hidden) navigator.vibrate(60);
   if (!document.hidden) return;
   unseen++;

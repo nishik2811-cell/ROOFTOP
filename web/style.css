@@ -419,9 +419,11 @@ a.caption[href]:hover { color: var(--accent); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  font: 700 10px/1 var(--mono);
+  letter-spacing: 0;
   border-radius: 999px;
   background: var(--accent);
   color: var(--ink);
@@ -729,6 +731,9 @@ dialog.sheet::backdrop { background: rgb(18 15 12 / 0.5); }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 38px;
   padding: 0 16px;
   border-radius: 999px;
@@ -1882,33 +1887,11 @@ dialog.sheet-chat { width: min(860px, 100vw); }
 .pick.off { opacity: 0.5; cursor: default; }
 .pick input { width: 18px; height: 18px; accent-color: var(--accent); }
 .sheet-chat[data-pane="group"] .thread { display: none; }
-.dot { min-width: 9px; width: auto; height: 16px; padding: 0 4px; top: 2px; right: 0; border-radius: 999px; color: #fff; font: 700 9px/16px var(--mono); text-align: center; }
+.dot { display: grid; place-items: center; min-width: 16px; width: auto; height: 16px; padding: 0 4px; top: 2px; right: 0; border-radius: 999px; color: #fff; font: 700 9px/1 var(--mono); letter-spacing: 0; text-align: center; }
 .dot:empty { width: 9px; height: 9px; padding: 0; top: 6px; right: 6px; }
 .devices li.tap { cursor: pointer; border-radius: 8px; }
 .devices li.tap:hover .dev-name { text-decoration: underline; }
 .sub-h { margin-top: 6px !important; color: var(--chalk-dim) !important; }
-
-/* a new message where nobody is looking: a speech bubble over the city */
-.city-bubble {
-  position: absolute; z-index: 3;
-  left: 50%; top: 78px;
-  max-width: min(320px, calc(100% - 40px));
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px 10px 10px;
-  border: 1px solid var(--chalk-dim); border-radius: 12px;
-  background: var(--chalk); color: var(--ink);
-  font: 12px/1.4 var(--mono); text-align: left; cursor: pointer;
-  box-shadow: 0 4px 16px #0003;
-  transform: translateX(-50%);
-}
-.city-bubble.pop { animation: bubble-in 0.5s var(--ease), bubble-out 0.6s ease-in 5.4s forwards; }
-@keyframes bubble-in { from { opacity: 0; transform: translate(-50%, 12px) scale(0.9); } }
-@keyframes bubble-out { to { opacity: 0; transform: translate(-50%, -8px); } }
-.city-bubble .avatar { width: 30px; height: 30px; font-size: 11px; }
-.cb-text { display: grid; min-width: 0; }
-.cb-text b { font-size: 11px; }
-.cb-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body.intro-on .city-bubble { visibility: hidden; }
 
 @media (max-width: 767px) {
   .chat-wrap { grid-template-columns: 1fr; height: 82dvh; }
