@@ -1913,7 +1913,7 @@ body.is-host .host { grid-row: 1 / span 2; align-self: start; }
 body.is-host .host-more {
   grid-column: 1; grid-row: 2;
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px;
-  align-items: start; /* device lists must not stretch neighbouring cards */
+  align-items: stretch;
   margin-top: 22px;
 }
 body.is-host .host-more .host-card { align-content: start; }
