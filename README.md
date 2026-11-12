@@ -1,100 +1,117 @@
-# Rooftop
+<p align="center"><img src="docs/screenshots/hero.jpg" alt="Rooftop's opening screen: Send to Rooftop, with a slide-to-enter button" width="900"></p>
 
-**Move files between Mac, Android, Windows, Linux and iPhone on the same local network.** Rooftop is a small, open-source, AirDrop-style transfer app with a playful rooftop city. No account, cables, cloud upload or phone app required: phones and tablets join from their browser.
+<h1 align="center">Rooftop</h1>
 
-> Rooftop uses your local Wi-Fi or hotspot. Browser-to-browser files are encrypted end to end; the host temporarily relays encrypted copies and removes them after recipients save them or the relay expires them. Files you download stay on your devices. The host's own inbox stores files it receives in the usual way.
+<p align="center"><b>AllDrop: AirDrop for all your devices.</b><br>
+Mac to Android, iPhone to Windows, Linux to anything. Over your own Wi-Fi, end-to-end encrypted, no app to install on phones.</p>
 
-## Screenshots
+<p align="center">Made by <b>Nishita</b>, <b>Aryan</b> and <b>Keshav</b></p>
 
-**City and rooftop murals**
+---
 
-![Rooftop city with file murals and street lights](docs/screenshots/city.png)
+## Why Rooftop
 
-**Connect devices**
+- **Any device to any device.** One computer runs Rooftop; every phone, tablet and laptop on the same Wi-Fi joins from its browser by scanning a QR code.
+- **Nothing leaves your network.** No account, no cloud, no internet needed. Files go over your Wi-Fi or a phone hotspot.
+- **Private by default.** Files and chat are encrypted on the sender's device for the people they are meant for. The computer in the middle only passes on scrambled data.
+- **Fun to use.** Every file lands on a billboard or a wall in a little city you can explore, by day or at night.
 
-![Host screen with its QR and PIN safely hidden](docs/screenshots/connect.png)
+## A look around
+
+<p align="center"><img src="docs/screenshots/city.jpg" alt="The Rooftop city by day and at night, with received files on billboards" width="100%"></p>
+
+<p align="center"><img src="docs/screenshots/phones.jpg" alt="Three phones: a file sent just to you, choosing several people in Send to, and the encrypted chat" width="100%"></p>
 
 ## Get started
 
-You need Java 22 or newer on the computer that hosts the session.
+You need **Java 22 or newer** ([adoptium.net](https://adoptium.net)) on the computer that hosts. Nothing to build.
 
-**Linux:**
-
-```bash
-./start-linux.sh
-```
-
-**macOS:** open `start-mac.command` (first time: right-click, Open). **Windows:** double-click `start-windows.bat`.
-
-Or, from the project folder on any desktop OS:
-
-```bash
-java src/rooftop/Main.java
-```
-
-The host opens Rooftop at [http://localhost:8080](http://localhost:8080). On a phone, scan the QR code shown in the host panel. Accept the browser's first-visit certificate warning: Rooftop uses a self-signed certificate for its local HTTPS connection. The QR code and PIN are for the current session; share them only with people you want to connect.
-
-Select **Send files**, choose one or more files, then choose Everyone or tap individual people under **Send to**. The recipient sees the incoming file count and transfer progress. Their files appear in the inbox and on their rooftop; they can preview them or choose **Receive all**. A browser may ask permission before downloading multiple files.
-
-## What it does
-
-- Sends files to Everyone or a chosen set of connected devices. Up to three files upload or decrypt at once.
-- Shows direct-to-you files with a **FOR YOU** label; senders see **TO <recipient>** on direct transfers.
-- Keeps a session history under **Inbox → History**, including browser-to-browser transfers and transfers whose files were removed.
-- Transfers clipboard text and provides end-to-end encrypted room, private and group chat.
-- Lets phones join from their browser and lets the Android app host a session itself.
-- Runs on a local network, without a cloud account or file-hosting service.
-
-Browser transfer history lasts until that browser reloads. The host's session history lasts until the session ends. Mobile browsers can restrict background work, audio before a user gesture, and multiple downloads. Keep the receiving page open while files are being saved.
-
-## Android app
-
-`Rooftop.apk` is the Android host app (Android 10+). Install it on an Android device to host Rooftop without a computer; other devices join through the QR code in the app. Build it yourself with an Android SDK (platform 35, build-tools 35.0.0) and JDK:
-
-```bash
-sh android/build.sh
-```
-
-The build writes `Rooftop.apk` in the project root. The signing key is `android/rooftop-release.keystore`; keep the same key to install future APK updates over the existing app.
-
-## Network and privacy
-
-All devices need to be reachable on the same Wi-Fi or phone hotspot. Some public, school or office Wi-Fi networks isolate connected devices; a hotspot is a useful alternative. Allow Rooftop through the computer's firewall if devices cannot connect.
-
-| Port | Purpose |
+| Computer | Start Rooftop |
 |---|---|
-| 8080 | Host's local web page |
-| 8443/TCP | HTTPS for phones and browsers |
-| 45454/UDP | Discover other Rooftop computers |
-| 45455/TCP | Encrypted computer-to-computer transfers |
+| Windows | double-click `start-windows.bat` |
+| macOS | double-click `start-mac.command` (first time: right-click, Open) |
+| Linux | `./start-linux.sh` |
 
-Browser-to-browser files are encrypted on the sender's device for each chosen recipient. The host relays ciphertext, not file contents, and deletes it once recipients acknowledge their copies. Uncollected phone copies expire after one hour. A file addressed to the host is retained until its own page opens and saves it. Files received by the host are saved in `~/Rooftop` and are not encrypted at rest by Rooftop.
+Or from the project folder on any of them: `java src/rooftop/Main.java`
 
-Phone-to-host web traffic uses HTTPS. Computer-to-computer transfer uses a PIN-checked key exchange and AES-GCM encryption. The self-signed certificate warning is expected; verifying a device's safety code helps detect a changed device key. As with any app served by a host, a compromised host could serve modified browser code.
+1. **On the computer**, open [http://localhost:8080](http://localhost:8080). You will see a QR code and a PIN.
+2. **On each phone**, scan the QR code. The first time, the browser says the connection is "not private": tap through it (*Advanced, Proceed* on Android, *Show details, visit this website* on iPhone). The connection is still encrypted; the certificate is simply made by your computer instead of a company.
+3. **Send.** Tap **Send files**, pick files, and choose who gets them under **Send to**: everyone, one person, or a few.
 
-## Project layout
+Phones must be on the same Wi-Fi or hotspot as the computer. Some school, office and cafe networks keep devices apart; a phone hotspot works instead. If phones cannot connect, allow Java through the computer's firewall (Rooftop uses ports 8443/TCP for phones, 45454/UDP and 45455/TCP between computers).
 
-- `web/` — browser UI, city renderer and end-to-end encryption.
-- `src/rooftop/` — Java desktop host, networking, transfer queue and security.
-- `android/` — Android host app and APK build script.
-- `test/` — browser-based checks; `src/rooftop/SelfTest.java` checks Java security and transfer behavior.
+### No computer around?
 
-## Checks
+`Rooftop.apk` is an Android app (Android 10 and newer) that hosts a session on the phone itself. Other phones and iPhones join it the same way, through their browser.
+
+## What you can do
+
+- **Send to anyone, a few people, or everyone.** Files sent just to you are marked **FOR YOU** in your city.
+- **Receive several files at once.** See how many are coming from whom, preview them, then **Receive all** or save them one by one.
+- **Chat**, in a room for everyone, one to one, or in groups. Messages are end-to-end encrypted too.
+- **Share text and the clipboard** between phone and computer.
+- **Check who you are talking to.** Each pair of devices shows a six-digit safety code; compare it, or scan the other device's QR code, to be sure no one swapped a key.
+- **See the history** of everything sent and received in the session, under Inbox.
+- **Start fresh.** *End session, start new* gives a new PIN, disconnects everyone and clears the session.
+
+## How it works
+
+```mermaid
+flowchart LR
+  A["Phone or laptop<br/>(browser)"] -- "encrypted files, HTTPS" --> H["Host computer<br/>or Android app"]
+  H -- "encrypted files" --> B["Another phone<br/>(browser)"]
+  H <-- "encrypted, PIN-checked" --> P["Another computer<br/>running Rooftop"]
+```
+
+- **Browser to browser:** the sending browser encrypts each file with a fresh key, sealed separately for every chosen person (AES-256-GCM, keys exchanged with ECDH P-256). The host stores only the scrambled copy and deletes it once everyone has saved theirs. Copies nobody collects are deleted after an hour or when the session ends.
+- **To the host itself:** the host's own page decrypts the file and saves it in `~/Rooftop`. Those files are stored like any other download.
+- **Computer to computer:** the connection is set up with the receiving computer's PIN (SPAKE2), so a wrong PIN or someone in the middle fails before any data moves. Both computers show a matching safety code.
+
+**Honest limits.** The certificate is self-signed, which is why browsers warn the first time. The pages themselves come from the host, so a host running modified code could serve a dishonest page; the safety codes catch a swapped key, not a swapped page. The host can see roughly how big files are and when they are sent, but not their names or contents.
+
+## Good to know
+
+- Keep the receiving page open while files are being saved. Phones can pause pages that are in the background.
+- Files received in a phone's browser are kept in that page until you save them; reloading the page fetches them again from the host, while the host still has them.
+- Very large batches are held in the browser's memory while they are decrypted, so phones with little memory may struggle with many big files at once.
+- A browser may ask before saving several files in a row. If you cancel a save, the host may already have deleted its copy, so save it again from the page before closing it.
+- Transfer history in a browser lasts until that page reloads; the host's history lasts until the session ends.
+- Retrying a failed send starts that file's encrypted upload again from the beginning.
+
+## For developers
+
+```
+src/rooftop/     Java host: networking, transfers, sealed storage, security (SPAKE2, PIN guard)
+web/             the page: city renderer (app.js), styles, end-to-end encryption (e2e.js)
+android/         Android host app and its build script
+test/            browser checks (Playwright)
+```
+
+Run the checks:
 
 ```bash
 java src/rooftop/SelfTest.java
 ```
 
-Browser checks need Playwright and a local Rooftop host. With Rooftop running, use:
+The browser checks need Playwright and a running Rooftop. They use their own test devices, but `test/e2e-browser.mjs` only runs its session-reset part with `ROOFTOP_TEST_RESET=1`, because ending a session deletes the host's received files.
 
 ```bash
-ROOFTOP_PLAYWRIGHT=/path/to/playwright/index.mjs node test/e2e-browser.mjs
-ROOFTOP_PLAYWRIGHT=/path/to/playwright/index.mjs node test/chat-browser.mjs
-ROOFTOP_PLAYWRIGHT=/path/to/playwright/index.mjs node test/batch-browser.mjs
+node test/e2e-browser.mjs
+node test/chat-browser.mjs
+node test/batch-browser.mjs
+node test/layout-check.mjs
 ```
 
-The session-reset section in `e2e-browser.mjs` is opt-in (`ROOFTOP_TEST_RESET=1`) because ending a session deletes the host's received files.
+Set `ROOFTOP_PLAYWRIGHT=/path/to/playwright/index.mjs` if Playwright is not installed in the project, and `ROOFTOP_BROWSER_CHANNEL=chrome` to use the Chrome already on the computer.
+
+Build the Android app (needs a JDK and the Android SDK with platform 35 and build-tools 35.0.0):
+
+```bash
+sh android/build.sh
+```
+
+Keep `android/rooftop-release.keystore` safe: Android only installs updates signed with the same key.
 
 ## Credits
 
-See [THIRD_PARTY.md](THIRD_PARTY.md) for font and icon licenses.
+Fonts and icons are listed in [THIRD_PARTY.md](THIRD_PARTY.md).

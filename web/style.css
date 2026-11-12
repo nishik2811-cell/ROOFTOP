@@ -2231,3 +2231,13 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
 
 .incoming-status { position: absolute; left: 14px; bottom: 76px; z-index: 4; max-width: calc(100% - 28px); padding: 10px 14px; border: 1px solid var(--chalk-dim); border-radius: 12px; background: var(--ink); color: var(--chalk); font: 12px/1.4 var(--mono); cursor: pointer; }
 body.intro-on .incoming-status { visibility: hidden; }
+
+/* chat: messages stack from the top; the list no longer stretches them apart when there are only a few */
+#textList { align-content: start; }
+
+/* phones: Save file and Open in tab sit higher in the file panel, clear of its bottom edge */
+@media (max-width: 767px) {
+  .story { padding-bottom: 24px; }
+  .story-art { height: 18vh; }
+  .story-actions { margin: 10px 0 4px; }
+}
