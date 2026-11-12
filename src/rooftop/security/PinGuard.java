@@ -24,7 +24,7 @@ public class PinGuard {
         SecureRandom random = new SecureRandom();
         String p;
         do {
-            p = String.format("%06d", random.nextInt(1_000_000));
+            p = String.format(java.util.Locale.ROOT, "%06d", random.nextInt(1_000_000));
         } while (Texts.isPalindrome(p));
         return p;
     }

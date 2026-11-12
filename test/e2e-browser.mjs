@@ -68,6 +68,8 @@ async function receiveOnPhone(p, expectName) {
   await p.evaluate(() => { showTab('files'); openSheet('inbox'); });
   const [download] = await Promise.all([p.waitForEvent('download'), p.getByRole('link', { name: `Save ${expectName}`, exact: true }).click()]);
   const body = readFileSync(await download.path());
+  check(await p.evaluate((name) => !localFile(name).acked, expectName), 'download request retains relay copy');
+  await p.evaluate(async (name) => { setArmed(name); await removeFile(name); }, expectName);
   await p.keyboard.press('Escape');
   return { body, name: download.suggestedFilename(), card: expectName };
 }

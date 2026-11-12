@@ -63,7 +63,7 @@ flowchart LR
   H <-- "encrypted, PIN-checked" --> P["Another computer<br/>running Rooftop"]
 ```
 
-- **Browser to browser:** the sending browser encrypts each file with a fresh key, sealed separately for every chosen person (AES-256-GCM, keys exchanged with ECDH P-256). The host stores only the scrambled copy and deletes it once everyone has saved theirs. Copies nobody collects are deleted after an hour or when the session ends.
+- **Browser to browser:** the sending browser encrypts each file with a fresh key, sealed separately for every chosen person (AES-256-GCM, keys exchanged with ECDH P-256). The host stores only the scrambled copy and deletes it once every recipient explicitly removes it from their Rooftop page. Browser download requests do not confirm a save. Remaining copies expire after an hour or when the session ends.
 - **To the host itself:** the host's own page decrypts the file and saves it in `~/Rooftop`. Those files are stored like any other download.
 - **Computer to computer:** the connection is set up with the receiving computer's PIN (SPAKE2), so a wrong PIN or someone in the middle fails before any data moves. Both computers show a matching safety code.
 
@@ -71,12 +71,13 @@ flowchart LR
 
 ## Good to know
 
+- After a host restart, existing inbox files are visible only to the host. Send them again to share them with other devices.
 - Keep the receiving page open while files are being saved. Phones can pause pages that are in the background.
 - Files received in a phone's browser are kept in that page until you save them; reloading the page fetches them again from the host, while the host still has them.
-- Very large batches are held in the browser's memory while they are decrypted, so phones with little memory may struggle with many big files at once.
-- A browser may ask before saving several files in a row. If you cancel a save, the host may already have deleted its copy, so save it again from the page before closing it.
-- Transfer history in a browser lasts until that page reloads; the host's history lasts until the session ends.
-- Retrying a failed send starts that file's encrypted upload again from the beginning.
+- Received files stream into temporary browser disk storage where supported. If storage is unavailable, receiving uses a shared 64 MB memory limit and stops safely when full. Disk quota errors retain the host copy. Temporary disk files are cleaned on page close; crash leftovers are cleaned on the next receive.
+- A browser may ask before saving several files in a row. Cancelling a download or share sheet keeps the encrypted host copy available until removal, expiry, or session end.
+- The latest 500 browser transfer history entries survive reloads in the same tab and host session, if session storage is enabled. History contains metadata, not file contents; closing the tab clears it. The host's history lasts until the session ends.
+- Manual retry resumes the same encrypted upload while the page and host session remain open. Reloading the sender or changing the host session requires a new send.
 
 ## For developers
 
@@ -99,6 +100,7 @@ The browser checks need Playwright and a running Rooftop. They use their own tes
 node test/e2e-browser.mjs
 node test/chat-browser.mjs
 node test/batch-browser.mjs
+node test/transfer-state.mjs
 node test/layout-check.mjs
 ```
 

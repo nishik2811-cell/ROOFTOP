@@ -135,9 +135,10 @@
   /**
    * Opens a sealed stream (a ReadableStream reader or any async iterable of Uint8Array pieces) with this device's
    * key pair. Returns { details, senderRaw, parts } where parts are the decrypted chunks, padding removed.
+   * With onChunk, awaits each write instead of retaining parts; callers must discard output if opening fails.
    * Throws if it is not for this key, or if anything was changed, swapped, reordered or cut off.
    */
-  async function open(pieces, pair, onProgress = () => {}) {
+  async function open(pieces, pair, onProgress = () => {}, onChunk = null) {
     let buf = new Uint8Array(0);
     const take = (n) => { const out = buf.slice(0, n); buf = buf.slice(n); return out; };
     const iterator = pieces[Symbol.asyncIterator] ? pieces[Symbol.asyncIterator]() : null;
@@ -191,6 +192,7 @@
     const end = json.indexOf(0);
     const details = JSON.parse(new TextDecoder().decode(end >= 0 ? json.slice(0, end) : json));
 
+    if (!Number.isSafeInteger(details.size) || details.size < 0) throw new Error('bad file size');
     const parts = [];
     let kept = 0;
     for (let i = 0; ; i++) {
@@ -200,7 +202,11 @@
       if (sealed.length < TAG) throw new Error('cut off');
       const plain = new Uint8Array(await subtle.decrypt({ name: 'AES-GCM', iv: nonce(fileId, i, last, false) }, fileKey, sealed));
       const keep = Math.max(0, Math.min(plain.length, details.size - kept));
-      if (keep) parts.push(keep === plain.length ? plain : plain.slice(0, keep));
+      if (keep) {
+        const chunk = keep === plain.length ? plain : plain.slice(0, keep);
+        if (onChunk) await onChunk(chunk);
+        else parts.push(chunk);
+      }
       kept += keep;
       if (last) break;
     }

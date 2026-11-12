@@ -46,6 +46,13 @@ public class SealedBox {
     private final String hostId;
     private final Map<String, Entry> entries = new HashMap<>();
     private final Set<String> busy = new HashSet<>();
+    private long generation;
+
+    public synchronized long generation() { return generation; }
+
+    private void checkGeneration(long expected) throws IOException {
+        if (expected != generation) throw new IOException("the transfer session ended");
+    }
 
     /** {@code dir}: temp folder for other devices' files. {@code held}: hidden folder for files waiting for this PC. */
     public SealedBox(Path dir, Path held, String hostId) throws IOException {
@@ -77,8 +84,13 @@ public class SealedBox {
 
     /** Appends a piece of sealed bytes (resumable, like the inbox), for the devices in {@code to}. */
     public void append(String id, Set<String> to, long size, long offset, InputStream in, long count) throws IOException {
+        append(id, to, size, offset, in, count, generation());
+    }
+
+    public void append(String id, Set<String> to, long size, long offset, InputStream in, long count, long expected) throws IOException {
         Path p;
         synchronized (this) {
+            checkGeneration(expected);
             Entry e = entries.get(check(id));
             if (e == null) entries.put(id, new Entry(new HashSet<>(to), size, System.currentTimeMillis(), new HashSet<>()));
             else if (!e.to().containsAll(to) || e.size() != size) throw new IOException("this upload belongs to another transfer");
@@ -91,11 +103,15 @@ public class SealedBox {
             try (OutputStream out = Files.newOutputStream(p, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
                 Streams.copy(in, out, count, new Progress(count));
             }
-            if (offset + count == size && to.contains(hostId)) // complete, and this PC is a recipient: write it down
-                Files.write(held.resolve(id + ".meta"), (size + "\n" + entries.get(id).at() + "\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            synchronized (this) {
+                checkGeneration(expected);
+                if (offset + count == size && to.contains(hostId)) // complete, and this PC is a recipient: write it down
+                    Files.write(held.resolve(id + ".meta"), (size + "\n" + entries.get(id).at() + "\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            }
         } finally {
             synchronized (this) {
-                busy.remove(id);
+                try { if (expected != generation) forget(id); }
+                finally { busy.remove(id); }
             }
         }
     }
@@ -107,7 +123,7 @@ public class SealedBox {
         for (Map.Entry<String, Entry> e : entries.entrySet()) {
             Path p = path(e.getKey());
             Entry v = e.getValue();
-            if (v.to().contains(deviceId) && !v.collected().contains(deviceId) && Files.exists(p) && Files.size(p) == v.size())
+            if (!busy.contains(e.getKey()) && v.to().contains(deviceId) && !v.collected().contains(deviceId) && Files.exists(p) && Files.size(p) == v.size())
                 out.add(new Waiting(e.getKey(), e.getValue().size(), e.getValue().at()));
         }
         return out;
@@ -117,7 +133,7 @@ public class SealedBox {
     public synchronized Path collect(String id, String deviceId) throws IOException {
         Entry e = entries.get(id);
         Path p = path(id);
-        if (e == null || !e.to().contains(deviceId) || e.collected().contains(deviceId) || !Files.exists(p) || Files.size(p) != e.size())
+        if (busy.contains(id) || e == null || !e.to().contains(deviceId) || e.collected().contains(deviceId) || !Files.exists(p) || Files.size(p) != e.size())
             throw new NoSuchFileException("sealed");
         return p;
     }
@@ -145,6 +161,7 @@ public class SealedBox {
 
     /** Session over: phones are gone, so their claims go. Files still waiting for this PC stay. */
     public synchronized void clear() throws IOException {
+        generation++;
         expire(Long.MAX_VALUE);
     }
 

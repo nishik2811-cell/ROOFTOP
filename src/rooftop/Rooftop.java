@@ -34,17 +34,45 @@ public class Rooftop {
     private final WebServer web = new WebServer(this);
     private final Inbox inbox;
     private final SealedBox sealed;
+    private final java.nio.channels.FileChannel ownership; // held for the process lifetime; never unlink the lock file
+
+    private static java.nio.channels.FileChannel processOwnership;
+
+    private static synchronized java.nio.channels.FileChannel claimStorage() throws IOException {
+        if (processOwnership != null && processOwnership.isOpen()) throw new IOException("Rooftop is already running for this user");
+        java.nio.file.Path lock = java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"),
+                "rooftop-host-" + System.getProperty("user.name", "app") + ".lock");
+        java.nio.channels.FileChannel channel = java.nio.channels.FileChannel.open(lock,
+                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.WRITE);
+        try {
+            if (channel.tryLock() == null) throw new IOException("Rooftop is already running for this user");
+            processOwnership = channel;
+            return channel;
+        } catch (java.nio.channels.OverlappingFileLockException e) {
+            channel.close();
+            throw new IOException("Rooftop is already running for this user", e);
+        } catch (IOException | RuntimeException e) {
+            channel.close();
+            throw e;
+        }
+    }
 
     public Rooftop(Platform platform) throws IOException {
         this.platform = platform;
         this.me = new ThisDevice(platform.deviceName());
-        this.inbox = new Inbox(platform.inboxDir());
-        if (java.nio.file.Files.isRegularFile(nameFile())) // a name picked earlier on this PC
-            me.rename(new String(java.nio.file.Files.readAllBytes(nameFile()), java.nio.charset.StandardCharsets.UTF_8));
-        // end-to-end encrypted files passing through: a hidden temp folder for other devices, and a hidden folder
-        // next to the inbox for files waiting for this PC (kept until this PC's page opens them). Neither is the inbox.
-        this.sealed = new SealedBox(java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"), "rooftop-sealed-" + System.getProperty("user.name", "app")),
-                inbox.dir().resolve(".rooftop").resolve("held"), ThisDevice.ID);
+        this.ownership = claimStorage();
+        try {
+            this.inbox = new Inbox(platform.inboxDir());
+            if (java.nio.file.Files.isRegularFile(nameFile())) // a name picked earlier on this PC
+                me.rename(new String(java.nio.file.Files.readAllBytes(nameFile()), java.nio.charset.StandardCharsets.UTF_8));
+            // end-to-end encrypted files passing through: a hidden temp folder for other devices, and a hidden folder
+            // next to the inbox for files waiting for this PC (kept until this PC's page opens them). Neither is the inbox.
+            this.sealed = new SealedBox(java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"), "rooftop-sealed-" + System.getProperty("user.name", "app")),
+                    inbox.dir().resolve(".rooftop").resolve("held"), ThisDevice.ID);
+        } catch (IOException | RuntimeException | Error e) {
+            ownership.close();
+            throw e;
+        }
     }
 
     public void start() throws IOException {
@@ -98,16 +126,27 @@ public class Rooftop {
     }
 
     /** Ends the current session: new PIN, phones must join again, messages and received files cleared. */
-    public void newSession() throws IOException {
+    public synchronized void newSession() throws IOException {
         pins.renew();
         int phones = devices.removeType(PhoneClient.class);
-        int files = inbox.newSession();
+        int files;
+        synchronized (inbox) {
+            files = inbox.newSession();
+            history.clear();
+        }
         sealed.clear();
-        history.clear();
         chat.clear();
         me.clearPublicKey();
         session = newSessionId();
         log.add("new session: PIN " + pins.pin() + ", " + phones + " phone(s) disconnected, " + files + " file(s) removed");
+    }
+
+    /** Do not publish an old transfer's history after a session reset. */
+    public void recordReceived(History.Entry entry, long generation) throws IOException {
+        synchronized (inbox) {
+            if (inbox.generation() != generation) throw new IOException("the transfer session ended");
+            history.add(entry);
+        }
     }
 
     public String clipboard() {

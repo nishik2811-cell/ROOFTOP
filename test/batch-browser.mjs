@@ -53,7 +53,7 @@ try {
     p.on('download', (d) => downloads.push(d));
     await p.locator('#fileFilter').fill(`batch-${stamp}-`);
     await p.click('#downloadAll');
-    await p.waitForFunction(() => localFiles.every((f) => f.acked));
+    assert.ok(await p.evaluate(() => localFiles.every((f) => !f.acked)), 'download requests do not acknowledge saves');
     const until = Date.now() + 10000;
     while (downloads.length < 4 && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
     assert.equal(downloads.length, 4, 'one action requests every download');
@@ -61,6 +61,13 @@ try {
     await p.click('#tabHistory');
     await p.waitForFunction((stamp) => [...document.querySelectorAll('#historyList li')].filter((li) => li.textContent.includes(`batch-${stamp}-`)).length === 4, stamp);
     await p.keyboard.press('Escape');
+    await p.reload();
+    await p.waitForFunction(() => localFiles.length === 4, null, { timeout: 30000 });
+    assert.equal(await p.evaluate(() => browserHistory.length), 4, 'reload preserves history without duplicate received entries');
+    assert.equal(await p.evaluate(() => receiveMemory), 0, 'received batch uses disk storage');
+    await p.evaluate(async () => {
+      for (const f of [...localFiles]) { setArmed(f.name); await removeFile(f.name); }
+    });
   }
   console.log('ok  both recipients saved all four exact files, with private city banners and history');
   for (const p of [excluded, extra]) {
@@ -69,7 +76,9 @@ try {
   }
   await sender.evaluate(() => { showTab('history'); openSheet('inbox'); });
   await sender.waitForFunction((stamp) => [...document.querySelectorAll('#historyList li')].filter((li) => li.textContent.includes(`batch-${stamp}-`)).length === 4, stamp);
-  console.log('ok  sender history survives tray cleanup; excluded peers get no files or batch metadata');
+  await sender.reload();
+  await sender.waitForFunction(() => browserHistory.length === 4);
+  console.log('ok  sender and receiver history survive reload; excluded peers get no files or batch metadata');
   await a.setViewportSize({ width: 390, height: 844 });
   await a.screenshot({ path: '/tmp/rooftop-batch-mobile.png' });
   const host = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
@@ -78,18 +87,35 @@ try {
   if (await host.locator('#introEnter').isVisible()) await host.locator('#introEnter').press('Enter');
   if (await host.locator('#nameGateSkip').isVisible()) await host.locator('#nameGateSkip').click();
   await host.waitForFunction(() => document.querySelector('#hostMore .key-list li'));
+  // The three cards (chat, keys, notifications) share one height. A long device list scrolls inside the keys card,
+  // so the row grows at most once, to the list's cap, and no further however many devices join.
   const cards = await host.evaluate(() => {
     const [chat, keys, notifications] = document.querySelectorAll('#hostMore .host-card');
-    const before = [chat.offsetHeight, notifications.offsetHeight];
+    const heights = () => [chat.offsetHeight, keys.offsetHeight, notifications.offsetHeight];
+    const before = heights();
     const list = keys.querySelector('.key-list');
     for (let i = 0; i < 25; i++) list.append(list.firstElementChild.cloneNode(true));
-    return { before, after: [chat.offsetHeight, notifications.offsetHeight], scrolls: list.scrollHeight > list.clientHeight,
+    const many = heights();
+    for (let i = 0; i < 50; i++) list.append(list.firstElementChild.cloneNode(true));
+    return { before, many, more: heights(), scrolls: list.scrollHeight > list.clientHeight,
       gap: chat.querySelector('p').getBoundingClientRect().top - chat.querySelector('h2').getBoundingClientRect().bottom };
   });
-  assert.deepEqual(cards.after, cards.before, 'more devices do not stretch chat or notifications');
+  const same = (hs) => hs.every((h) => h === hs[0]);
+  assert.ok(same(cards.before) && same(cards.many), `the cards stay equal height (${cards.before} then ${cards.many})`);
+  assert.deepEqual(cards.more, cards.many, 'more devices beyond the cap do not grow the cards any further');
   assert.ok(cards.scrolls && cards.gap <= 20, 'key rows scroll and chat content stays together');
   await host.locator('#hostMore').screenshot({ path: '/tmp/rooftop-host-cards.png' });
-  console.log('ok  long device lists scroll without stretching chat or notification cards');
+  console.log('ok  cards stay equal height; long device lists scroll instead of growing the row');
+  // below desktop width each card is only as tall as its own content
+  await host.setViewportSize({ width: 900, height: 1000 });
+  await host.waitForTimeout(300);
+  const narrow = await host.evaluate(() => {
+    const [chat, keys, notifications] = document.querySelectorAll('#hostMore .host-card');
+    return { chat: chat.offsetHeight, keys: keys.offsetHeight, notifications: notifications.offsetHeight,
+      chatContent: [...chat.children].reduce((n, c) => n + c.offsetHeight, 0) };
+  });
+  assert.ok(narrow.chat < narrow.keys, `below desktop width, cards are not stretched to the tallest (${JSON.stringify(narrow)})`);
+  console.log('ok  below desktop width each card keeps its own height');
   assert.deepEqual(errors, []);
   console.log('all batch browser checks passed');
 } finally {

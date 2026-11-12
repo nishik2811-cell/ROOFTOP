@@ -78,7 +78,6 @@ const deviceId = local.get('rooftop-device') || (() => {
   return id;
 })();
 const withPin = (path) => (isLocal ? path : path + (path.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(pin) + '&device=' + deviceId);
-// shortcut: decrypted blobs and browser history live until reload; use disk-backed storage for very large batches.
 // Files this page decrypted for itself (a phone's private and broadcast files). They live in the page until it closes,
 // so saving works whenever the person taps Save; the PC keeps its encrypted copy until then, as a fallback.
 const localFiles = [];
@@ -669,7 +668,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       f.lineWidth = 3; f.strokeStyle = '#2a1f1c'; f.fillStyle = '#fbf3e6';
       f.strokeText(text, w / 2, h * 0.3); f.fillText(text, w / 2, h * 0.3);
     }
-    if (file.forYou) forYouTag(f, w, h);
+    if (file.forYou) forYouTag(f, w, h, file);
     f.restore();
   }
 
@@ -683,7 +682,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       f.save(); f.beginPath(); f.rect(4, 4, w - 8, h - 8); f.clip();
       f.drawImage(img, (w - img.naturalWidth * s) / 2, (h - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s);
       f.restore();
-      if (file.forYou) forYouTag(f, w, h);
+      if (file.forYou) forYouTag(f, w, h, file);
       return;
     }
     // a poster: a big colour block with the file type, the name underneath, the sender in small type
@@ -702,11 +701,11 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     f.font = `600 ${h * 0.1}px ${MONO}`;
     f.fillStyle = shade(color, 0.7);
     f.fillText((file.forYou ? `${file.recipientView ? 'for you' : `to ${file.to || 'you'}`} · from ` : 'from ') + (file.from || '').slice(0, file.forYou ? 10 : 18), w * 0.47, h * 0.64);
-    if (file.forYou) forYouTag(f, w, h);
+    if (file.forYou) forYouTag(f, w, h, file);
   }
 
   // a small red ribbon in the corner: this device is among the explicitly selected recipients
-  function forYouTag(f, w, h) {
+  function forYouTag(f, w, h, file) {
     const s = Math.max(9, Math.min(w, h) * 0.13);
     f.font = `800 ${s}px ${MONO}`;
     const label = (file.recipientView ? 'FOR YOU' : file.to && file.to !== 'everyone' ? `TO ${file.to}` : 'FOR YOU').toUpperCase().slice(0, 16);
@@ -1455,7 +1454,7 @@ async function removeFile(name) {
   if (lf) { // decrypted here: drop it here, and let the PC delete its encrypted copy
     ackLocal(lf);
     localFiles.splice(localFiles.indexOf(lf), 1);
-    setTimeout(() => URL.revokeObjectURL(lf.url), 60000);
+    setTimeout(() => { URL.revokeObjectURL(lf.url); lf.dispose(); }, 60000);
     toast(`Removed ${name}`);
     await refresh();
     return;
@@ -1516,11 +1515,26 @@ async function refresh() {
   try {
     const next = await (await call('/api/state')).json();
     if (state.session && next.session !== state.session) {
-      localFiles.splice(0).forEach((f) => URL.revokeObjectURL(f.url));
+      for (const job of jobs) {
+        if (!['announcing', 'waiting', 'sending'].includes(job.state)) continue;
+        job.cancelled = true;
+        job.xhr?.abort();
+        if (job.state !== 'sending') job.state = 'cancelled';
+      }
+      if (!busy()) releaseWakeLock();
+      localFiles.splice(0).forEach((f) => { URL.revokeObjectURL(f.url); f.dispose(); });
       browserHistory.length = 0;
+      session.set('rooftop-history', '');
       incomingTransfers.clear();
       sealedDone.clear();
       renderIncomingTransfers();
+    }
+    if (historySession !== next.session) {
+      historySession = next.session;
+      try {
+        const saved = JSON.parse(session.get('rooftop-history') || 'null');
+        browserHistory.splice(0, browserHistory.length, ...(saved?.session === next.session && Array.isArray(saved.entries) ? saved.entries.slice(0, 500) : []));
+      } catch { browserHistory.length = 0; }
     }
     next.files = [...localFiles, ...next.files.filter((f) => !localFile(f.name)).map((f) => ({ ...f, forYou: !f.mine && f.to !== 'everyone' }))];
     state = next;
@@ -2078,6 +2092,13 @@ function avatar(d, size = '') {
 }
 
 const browserHistory = [];
+let historySession = '';
+function rememberTransfer(entry) {
+  if (entry.sealedId && browserHistory.some((h) => h.sealedId === entry.sealedId)) return;
+  browserHistory.unshift(entry);
+  browserHistory.length = Math.min(browserHistory.length, 500);
+  session.set('rooftop-history', JSON.stringify({ session: state.session, entries: browserHistory }));
+}
 const incomingTransfers = new Map();
 async function transferNotice(job, status) {
   if (!job.recipients.length) return;
@@ -2164,11 +2185,15 @@ async function upload(list) {
   const queued = [];
   for (const file of list) {
     jobs.push({ id: ++jobSeq, file, to, toName, recipients, keepHere, sealed: recipients.length > 0,
-      transferId, transferCount: list.length, state: 'announcing', sent: 0, speed: 0, queuedAt: Date.now(), batch, xhr: null, cancelled: false, note: '' });
+      transferId, transferCount: list.length, session: state.session, state: 'announcing', sent: 0, speed: 0, queuedAt: Date.now(), batch, xhr: null, cancelled: false, note: '' });
     queued.push(jobs[jobs.length - 1]);
   }
+  renderTray();
   try { await transferNotice(queued[0], 'uploading'); } catch { toast('Could not announce the incoming files. The transfer will still be attempted.'); }
-  for (const job of queued) job.state = 'waiting';
+  for (const job of queued) {
+    if (job.state === 'announcing') job.state = 'waiting';
+    else if (job.state === 'cancelled') transferNotice(job, 'cancelled').catch(() => {});
+  }
   if (jobs.filter((j) => j.state === 'sending').length >= PARALLEL) toast(`${list.length > 1 ? list.length + ' files' : list[0].name} queued`);
   pump();
   renderTray();
@@ -2195,13 +2220,16 @@ async function run(job) {
   job.state = 'sending';
   job.startedAt = performance.now();
   try {
-    job.compressed = await worthCompressing(job.file);
+    if (job.session !== state.session) throw new Error('The PC session changed. Send the file again.');
+    if (job.cancelled) throw new Cancelled();
+    if (!job.sealedUpload) job.compressed = await worthCompressing(job.file);
     if (job.sealed) await sendSealed(job);
     if (job.keepHere) { // over localhost to its own inbox: the bytes never leave this PC unencrypted
       job.sent = 0;
       const res = await sendOne(job);
       job.savedAs = res?.name || job.file.name;
     }
+    job.sealedUpload = null;
     job.state = 'sent';
     job.sent = job.file.size;
     if (job.sealed && job.recipients.length === 1) job.note = `Safety code ${await safetyCodeFor(job.recipients[0].key)}`;
@@ -2212,8 +2240,8 @@ async function run(job) {
   }
   job.xhr = null;
   job.endedAt = performance.now();
-  if (job.sealed) {
-    browserHistory.unshift({ name: job.file.name, size: job.file.size, from: state.you, mine: true, to: job.toName, at: Date.now(), ok: job.state === 'sent', note: job.note, ms: job.endedAt - job.startedAt });
+  if (job.sealed && job.session === state.session) {
+    rememberTransfer({ name: job.file.name, size: job.file.size, from: state.you, mine: true, to: job.toName, at: Date.now(), ok: job.state === 'sent', note: job.note, ms: job.endedAt - job.startedAt });
     transferNotice(job, job.state).catch(() => {});
   }
   pump();
@@ -2241,7 +2269,7 @@ async function finishBatch() {
 }
 
 function cancelJob(job) {
-  if (job.state === 'waiting') { job.state = 'cancelled'; transferNotice(job, 'cancelled').catch(() => {}); renderTray(); if (!busy()) finishBatch(); return; }
+  if (job.state === 'announcing' || job.state === 'waiting') { job.cancelled = true; job.state = 'cancelled'; transferNotice(job, 'cancelled').catch(() => {}); renderTray(); if (!busy()) finishBatch(); return; }
   if (job.state !== 'sending') return;
   job.cancelled = true;
   job.xhr?.abort();
@@ -2301,7 +2329,7 @@ function renderTray() {
   tray.hidden = !jobs.length;
   if (!jobs.length) { setSendButton(); return; }
   tray.classList.toggle('folded', !trayOpen);
-  const active = jobs.filter((j) => j.state === 'sending'), waiting = jobs.filter((j) => j.state === 'waiting');
+  const active = jobs.filter((j) => j.state === 'sending'), waiting = jobs.filter((j) => j.state === 'waiting' || j.state === 'announcing');
   const speed = active.reduce((a, j) => a + j.speed, 0);
   const left = [...active, ...waiting].reduce((a, j) => a + j.file.size - j.sent, 0);
   const done = jobs.filter((j) => j.state === 'sent').length, failed = jobs.filter((j) => j.state === 'failed').length;
@@ -2334,6 +2362,7 @@ function renderTray() {
     const pct = j.file.size ? Math.min(100, Math.floor((j.sent / j.file.size) * 100)) : 100;
     const to = j.toName === 'Everyone' ? '' : ` · to ${j.toName}`;
     row.children[1].textContent = {
+      announcing: `Announcing · ${humanSize(j.file.size)}${to}`,
       waiting: `Waiting · ${humanSize(j.file.size)}${to}`,
       sending: `${pct}% · ${rate(j.speed)}${j.speed > 0 ? ` · ${duration((j.file.size - j.sent) / j.speed)} left` : ''}${j.compressed ? ' · compressed' : ''}${to}`,
       sent: `Sent · ${humanSize(j.file.size)}${j.endedAt ? ` · ${rate(j.file.size / Math.max(0.001, (j.endedAt - j.startedAt) / 1000))}` : ''}${j.note ? ' · ' + j.note : ''}${to}`,
@@ -2475,7 +2504,7 @@ function sendPiece(job, key, offset, rawLength, body, onLoaded) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     job.xhr = x;
-    const q = `?name=${encodeURIComponent(job.file.name)}&size=${job.file.size}&key=${encodeURIComponent(key)}&offset=${offset}&to=${encodeURIComponent(job.to)}`
+    const q = `?session=${encodeURIComponent(job.session)}&name=${encodeURIComponent(job.file.name)}&size=${job.file.size}&key=${encodeURIComponent(key)}&offset=${offset}&to=${encodeURIComponent(job.to)}`
       + (job.compressed ? `&z=gzip&raw=${rawLength}` : '');
     x.open('POST', withPin('/api/upload' + q));
     x.upload.onprogress = (e) => onLoaded(e.loaded);
@@ -2588,24 +2617,29 @@ function recipientsFor(to) {
 const UPLOAD_BATCH = 4 * 1024 * 1024;
 async function sendSealed(job) {
   const file = job.file;
-  const data = job.compressed ? await gzip(file) : file;
-  const details = { name: file.name, type: file.type || '', z: job.compressed ? 'gzip' : '', to: job.to === '*' ? 'everyone' : 'direct', transferId: job.transferId, transferCount: job.transferCount };
-  const { total, pieces } = await E2E.seal(data, details, job.recipients.map((r) => E2E.unb64(r.key)), myPair);
-  const key = E2E.b64(crypto.getRandomValues(new Uint8Array(12))); // a new id per send
-  const to = job.recipients.map((r) => r.id).join(',');
-  let offset = 0;
-  // 1 MB sealed chunks are sent about 4 at a time: every request is a new connection (and TLS handshake), so fewer,
-  // bigger requests go faster. Still in order, so a dropped request resumes at the right byte.
-  async function* batched() {
-    let parts = [], size = 0;
-    for await (const p of pieces) {
-      parts.push(p);
-      size += p.length;
-      if (size >= UPLOAD_BATCH) { yield new Blob(parts); parts = []; size = 0; }
+  if (!job.sealedUpload) {
+    const data = job.compressed ? await gzip(file) : file;
+    const details = { name: file.name, type: file.type || '', z: job.compressed ? 'gzip' : '', to: job.to === '*' ? 'everyone' : 'direct', transferId: job.transferId, transferCount: job.transferCount };
+    const { total, pieces } = await E2E.seal(data, details, job.recipients.map((r) => E2E.unb64(r.key)), myPair);
+    async function* batched() {
+      let parts = [], size = 0;
+      for await (const p of pieces) {
+        parts.push(p);
+        size += p.length;
+        if (size >= UPLOAD_BATCH) { yield new Blob(parts); parts = []; size = 0; }
+      }
+      if (parts.length) yield new Blob(parts);
     }
-    if (parts.length) yield new Blob(parts);
+    job.sealedUpload = { total, pieces: batched(), key: E2E.b64(crypto.getRandomValues(new Uint8Array(12))),
+      to: job.recipients.map((r) => r.id).join(','), offset: 0, piece: null, session: state.session };
   }
-  for await (const piece of batched()) {
+  const upload = job.sealedUpload;
+  if (upload.session !== state.session) throw new Error('The PC session changed. Send the file again.');
+  const { total, key, to } = upload;
+  while (upload.offset < total) {
+    if (job.cancelled) throw new Cancelled();
+    if (!upload.piece) upload.piece = (await upload.pieces.next()).value;
+    const piece = upload.piece, offset = upload.offset;
     let at = offset; // where the PC is inside this batch: after a dropped connection it may hold part of it
     for (let failures = 0; ;) {
       if (job.cancelled) throw new Cancelled();
@@ -2615,13 +2649,15 @@ async function sendSealed(job) {
         if (res.offset === offset + piece.size) break;
         if (res.offset > offset && res.offset < offset + piece.size) { at = res.offset; continue; } // carry on from there
         if (res.offset !== at) throw Object.assign(new Error('the PC lost track of this file'), { fatal: true });
+        throw new Error('the upload made no progress');
       } catch (e) {
         if (e instanceof PinError || e.fatal || job.cancelled || ++failures > RETRIES) throw e;
         job.note = `retrying (${failures} of ${RETRIES})`;
         await sleep(1000 * failures);
       }
     }
-    offset += piece.size;
+    upload.offset += piece.size;
+    upload.piece = null;
   }
   job.note = '';
   return null;
@@ -2631,7 +2667,7 @@ function postSealed(job, piece, key, offset, total, to, onLoaded) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     job.xhr = x;
-    x.open('POST', withPin(`/api/sealed/upload?key=${key}&offset=${offset}&size=${total}&to=${encodeURIComponent(to)}`));
+    x.open('POST', withPin(`/api/sealed/upload?session=${encodeURIComponent(job.session)}&key=${key}&offset=${offset}&size=${total}&to=${encodeURIComponent(to)}`));
     x.upload.onprogress = (e) => onLoaded(e.loaded);
     x.onload = () => {
       let body = {};
@@ -2646,16 +2682,104 @@ function postSealed(job, piece, key, offset, total, to, onLoaded) {
   });
 }
 
-/** Downloads and opens one sealed file: { name, blob, sender, code, everyone }. */
+// OPFS keeps batch contents on disk. The fallback has one shared limit, including decompression.
+const MEMORY_RECEIVE_LIMIT = 64 * 1024 * 1024;
+let receiveMemory = 0;
+const receiveDisposals = new Set();
+window.addEventListener('pagehide', (e) => { if (!e.persisted) for (const dispose of receiveDisposals) dispose(); });
+let receiveDirectory;
+function diskReceiveDirectory() {
+  if (!receiveDirectory) receiveDirectory = (async () => {
+    if (!navigator.locks) throw new Error('Browser storage locks unavailable');
+    const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('rooftop-receive', { create: true });
+    // A page holds its directory lock until it closes; clean crash leftovers only when no page owns them.
+    for await (const name of root.keys()) {
+      await navigator.locks.request('rooftop-receive-' + name, { ifAvailable: true }, async (lock) => {
+        if (lock) await root.removeEntry(name, { recursive: true }).catch(() => {});
+      });
+    }
+    const name = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      navigator.locks.request('rooftop-receive-' + name, async () => {
+        const closed = new Promise((done) => window.addEventListener('pagehide', (e) => { if (!e.persisted) done(); }));
+        try { resolve(await root.getDirectoryHandle(name, { create: true })); }
+        catch (e) { reject(e); return; }
+        await closed;
+        await root.removeEntry(name, { recursive: true }).catch(() => {});
+      }).catch(reject);
+    });
+  })();
+  return receiveDirectory;
+}
+async function receiveSink() {
+  let dir, handle, writer;
+  const name = 'rooftop-receive-' + crypto.randomUUID();
+  try {
+    dir = await diskReceiveDirectory();
+    handle = await dir.getFileHandle(name, { create: true });
+    writer = await handle.createWritable();
+  } catch {
+    if (dir) await dir.removeEntry(name).catch(() => {});
+  }
+  let parts = [], held = 0, disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    receiveMemory -= held;
+    parts = [];
+    receiveDisposals.delete(dispose);
+    if (dir) dir.removeEntry(name).catch(() => {});
+  };
+  receiveDisposals.add(dispose);
+  return {
+    dispose,
+    async write(chunk) {
+      if (disposed) throw new Error('Receive cancelled');
+      if (writer) await writer.write(chunk);
+      else {
+        if (receiveMemory + chunk.byteLength > MEMORY_RECEIVE_LIMIT)
+          throw new Error('Browser storage is unavailable and the memory limit was reached. Remove received files or enable browser storage, then reload.');
+        receiveMemory += chunk.byteLength;
+        held += chunk.byteLength;
+        parts.push(chunk);
+      }
+    },
+    async finish(type) {
+      if (writer) { await writer.close(); return (await handle.getFile()).slice(0, undefined, type); }
+      const blob = new Blob(parts, { type });
+      parts = [];
+      return blob;
+    },
+    async abort() { if (writer) await writer.abort().catch(() => {}); dispose(); },
+  };
+}
+
+/** Downloads and opens one sealed file without retaining its decrypted chunks in JS memory. */
 async function openSealed(item, onProgress) {
-  const res = await call('/api/sealed/' + item.id);
-  const out = await E2E.open(res.body.getReader(), [myPair, ...oldPairs], onProgress);
-  const senderKey = E2E.b64(out.senderRaw);
-  const sender = state.devices.find((d) => d.key === senderKey) || (state.meKey === senderKey ? { id: state.meId, name: state.me } : null);
-  await fingerprint(senderKey);
-  let blob = new Blob(out.parts, { type: out.details.type || '' });
-  if (out.details.z === 'gzip') blob = await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).blob();
-  return { name: out.details.name, transferId: out.details.transferId, transferCount: out.details.transferCount, blob, sender, senderKey, code: await E2E.safetyCode(myRaw, out.senderRaw), everyone: out.details.to === 'everyone' };
+  let sink = await receiveSink(), reader;
+  try {
+    const res = await call('/api/sealed/' + item.id);
+    reader = res.body.getReader();
+    const out = await E2E.open(reader, [myPair, ...oldPairs], onProgress, (chunk) => sink.write(chunk));
+    const senderKey = E2E.b64(out.senderRaw);
+    const sender = state.devices.find((d) => d.key === senderKey) || (state.meKey === senderKey ? { id: state.meId, name: state.me } : null);
+    await fingerprint(senderKey);
+    let blob = await sink.finish(out.details.type || '');
+    if (out.details.z === 'gzip') {
+      const packed = sink;
+      sink = await receiveSink();
+      try {
+        await blob.stream().pipeThrough(new DecompressionStream('gzip')).pipeTo(new WritableStream({ write: (chunk) => sink.write(chunk) }));
+        blob = await sink.finish(out.details.type || '');
+      } finally { packed.dispose(); }
+    }
+    return { name: out.details.name, transferId: out.details.transferId, transferCount: out.details.transferCount, blob, dispose: sink.dispose,
+      sender, senderKey, code: await E2E.safetyCode(myRaw, out.senderRaw), everyone: out.details.to === 'everyone' };
+  } catch (e) {
+    await reader?.cancel().catch(() => {});
+    await sink.abort();
+    throw e;
+  }
 }
 
 // Receive up to three files at once on phones and the host; saving is offered together in the inbox.
@@ -2678,15 +2802,17 @@ function offerSealed(list) {
 
 /** Downloads and decrypts one file here; it then shows up in the city, the inbox and the incoming card like any other. */
 async function receiveOnPhone(item) {
+  const receivingSession = state.session;
   const got = await openSealed(item, () => {});
+  if (receivingSession !== state.session) { got.dispose(); return; }
   let name = got.name;
   for (let n = 2; localFile(name) || state.files.some((f) => f.name === name); n++) name = got.name.replace(/(\.[^.]*)?$/, ` (${n})$1`);
   localFiles.unshift({
     name, transferId: got.transferId, recipientView: true, size: got.blob.size, at: Date.now(), mine: false, removable: true, local: true,
     from: got.sender ? got.sender.name : 'a device that has left', to: got.everyone ? 'everyone' : state.you, forYou: !got.everyone,
-    url: URL.createObjectURL(got.blob), blob: got.blob, sealedId: item.id, acked: false, code: got.code, senderKey: got.senderKey,
+    url: URL.createObjectURL(got.blob), blob: got.blob, dispose: got.dispose, sealedId: item.id, acked: false, code: got.code, senderKey: got.senderKey,
   });
-  browserHistory.unshift({ ...localFiles[0], url: undefined, blob: undefined, ok: true });
+  rememberTransfer({ ...localFiles[0], url: undefined, blob: undefined, dispose: undefined, senderKey: undefined, ok: true });
   markReceived(got);
   sealedDone.add(item.id);
   refresh();
@@ -2706,23 +2832,24 @@ function shareSaves(fs) {
   if (!IOS || !navigator.canShare) return false;
   const files = fs.map((f) => new File([f.blob], f.name, { type: f.blob.type || 'application/octet-stream' }));
   if (!navigator.canShare({ files })) return false;
-  navigator.share({ files }).then(() => fs.forEach(ackLocal)).catch(() => { /* cancelled: tap Save again */ });
+  navigator.share({ files }).catch(() => { /* cancelled: tap Save again */ });
   return true;
 }
 
-// Every Save button is a link to the file's URL; for files decrypted here, catch the tap to share or acknowledge it.
+// Download links and share sheets cannot confirm a disk save; retain the relay copy until explicit removal.
 document.addEventListener('click', (e) => {
   const a = e.target.closest?.('a[href^="blob:"]');
   const f = a && localFiles.find((x) => x.url === a.href);
   if (!f) return;
   if (shareSaves([f])) { e.preventDefault(); return; }
-  ackLocal(f);
 }, true);
 
 async function receiveOnHost(item) {
+  const receivingSession = state.session;
+  let got;
   try {
-    const got = await openSealed(item, () => {});
-    const q = `?name=${encodeURIComponent(got.name)}&to=${got.everyone ? '*' : encodeURIComponent(state.meId)}` + (got.sender ? `&as=${encodeURIComponent(got.sender.id)}` : '');
+    got = await openSealed(item, () => {});
+    const q = `?session=${encodeURIComponent(receivingSession)}&name=${encodeURIComponent(got.name)}&to=${got.everyone ? '*' : encodeURIComponent(state.meId)}` + (got.sender ? `&as=${encodeURIComponent(got.sender.id)}` : '');
     await call('/api/upload' + q, { method: 'POST', body: got.blob });
     await call(`/api/sealed/${item.id}/ack`, { method: 'POST' });
     markReceived(got);
@@ -2731,7 +2858,7 @@ async function receiveOnHost(item) {
     if (e instanceof PinError) return;
     sealedDone.add(item.id); // do not loop on it now; the PC keeps it, so reloading this page tries again
     toast(`A private file could not be opened: ${e.message}`, 8000);
-  }
+  } finally { got?.dispose(); }
   refresh();
 }
 

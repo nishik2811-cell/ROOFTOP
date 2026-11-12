@@ -124,6 +124,16 @@ public class WebServer {
     }
 
     private void api(Http.Request req, Http.Response res, String route) throws IOException, WrongPinException {
+        long inboxGeneration, sealedGeneration;
+        synchronized (app) {
+            inboxGeneration = app.inbox().generation();
+            sealedGeneration = app.sealed().generation();
+            if ((route.equals("/upload") || route.equals("/sealed/upload")) && req.query.containsKey("session")
+                    && !app.session().equals(req.query.get("session"))) {
+                res.send(410, TEXT, "the transfer session ended");
+                return;
+            }
+        }
         boolean local = req.remote.isLoopbackAddress();
         if (!local) app.pins().check(req.remote.getHostAddress(), req.query.get("pin"));
         NetworkDevice guest = local ? null : visitor(req);
@@ -164,13 +174,13 @@ public class WebServer {
                 String from = sender != null ? sender.name() : visitor, fromId = sender != null ? sender.id() : visitorId;
                 if (!post) res.send(405, TEXT, "POST only");
                 else if (req.length < 0) res.send(411, TEXT, "Content-Length required");
-                else if (req.query.containsKey("key")) uploadPiece(req, res, from, fromId);
+                else if (req.query.containsKey("key")) uploadPiece(req, res, from, fromId, inboxGeneration);
                 else {
                     String to = recipient(req.query.get("to"));
                     long started = System.nanoTime();
-                    ReceivedItem item = app.inbox().store(req.query.get("name"), req.body, req.length, from, fromId, to, new Progress(req.length));
-                    app.history().add(new History.Entry(System.currentTimeMillis(), item.name(), item.size(), from, fromId, to,
-                            recipientName(to), true, (System.nanoTime() - started) / 1_000_000, 1, ""));
+                    ReceivedItem item = app.inbox().store(req.query.get("name"), req.body, req.length, from, fromId, to, new Progress(req.length), inboxGeneration);
+                    app.recordReceived(new History.Entry(System.currentTimeMillis(), item.name(), item.size(), from, fromId, to,
+                            recipientName(to), true, (System.nanoTime() - started) / 1_000_000, 1, ""), inboxGeneration);
                     app.log().add(from + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(req.length) + ", "
                             + Texts.speed(req.length, System.nanoTime() - started) + ")");
                     app.changed();
@@ -215,7 +225,7 @@ public class WebServer {
             case "/sealed/upload" -> {
                 if (!post) res.send(405, TEXT, "POST only");
                 else if (req.length < 0) res.send(411, TEXT, "Content-Length required");
-                else sealedPiece(req, res, visitorId);
+                else sealedPiece(req, res, visitorId, sealedGeneration);
             }
             case "/remove" -> {
                 String name = req.query.get("name");
@@ -261,7 +271,7 @@ public class WebServer {
      * Resumable upload, one piece per request: ?name&size&key&offset&to. The browser sends a few MB at a time;
      * if the connection drops it asks again from the same offset, and a 409 tells it where we really are.
      */
-    private void uploadPiece(Http.Request req, Http.Response res, String visitor, String visitorId) throws IOException {
+    private void uploadPiece(Http.Request req, Http.Response res, String visitor, String visitorId, long generation) throws IOException {
         long size, offset;
         try {
             size = Long.parseLong(req.query.getOrDefault("size", "-1"));
@@ -286,12 +296,12 @@ public class WebServer {
             return;
         }
         // the id mixes in who is sending, so two phones with the same file never write into each other's upload
-        String id = Texts.sha256(visitorId + "|" + req.query.get("key")).substring(0, 32);
+        String id = Texts.sha256(visitorId + "|" + generation + "|" + req.query.get("key")).substring(0, 32);
         long[] stats = uploads.computeIfAbsent(id, k -> new long[]{System.nanoTime(), 0, 0});
         long started = System.nanoTime();
         try {
             java.io.InputStream body = gzip ? new java.util.zip.GZIPInputStream(req.body, 64 * 1024) : req.body;
-            app.inbox().append(id, offset, body, count, new Progress(count));
+            app.inbox().append(id, offset, body, count, new Progress(count), generation);
             if (gzip) while (req.body.read() >= 0) { /* the gzip trailer */ }
         } catch (OffsetMismatchException e) {
             req.body.skip(req.length); // read the piece anyway, or the browser sees a reset instead of our answer
@@ -310,11 +320,11 @@ public class WebServer {
             return;
         }
         String to = recipient(req.query.get("to"));
-        ReceivedItem item = app.inbox().finish(id, req.query.get("name"), size, visitor, visitorId, to);
+        ReceivedItem item = app.inbox().finish(id, req.query.get("name"), size, visitor, visitorId, to, generation);
         uploads.remove(id);
         double ratio = stats[2] > 0 ? (double) stats[1] / stats[2] : 1;
-        app.history().add(new History.Entry(System.currentTimeMillis(), item.name(), size, visitor, visitorId, to, recipientName(to),
-                true, (System.nanoTime() - stats[0]) / 1_000_000, ratio, ""));
+        app.recordReceived(new History.Entry(System.currentTimeMillis(), item.name(), size, visitor, visitorId, to, recipientName(to),
+                true, (System.nanoTime() - stats[0]) / 1_000_000, ratio, ""), generation);
         app.log().add(visitor + " -> " + recipientName(to) + ": " + item.name() + " (" + Texts.humanSize(size)
                 + (offset > 0 ? ", last piece " + Texts.speed(req.length, System.nanoTime() - started) : "")
                 + (ratio < 0.95 ? String.format(Locale.ROOT, ", sent compressed to %d%%", Math.round(ratio * 100)) : "") + ")");
@@ -326,7 +336,7 @@ public class WebServer {
      * A piece of an end-to-end sealed file for one device. Deliberately silent: no log line, no inbox entry.
      * The recipient must be a connected browser with a key; the PC itself never takes sealed files.
      */
-    private void sealedPiece(Http.Request req, Http.Response res, String visitorId) throws IOException {
+    private void sealedPiece(Http.Request req, Http.Response res, String visitorId, long generation) throws IOException {
         java.util.Set<String> to = new java.util.HashSet<>(java.util.Arrays.asList(req.query.getOrDefault("to", "").split(",")));
         boolean recipientOk = !to.isEmpty() && to.size() <= 255 && !to.contains(visitorId) && to.stream().allMatch(this::canReceiveSealed);
         long size, offset;
@@ -341,9 +351,9 @@ public class WebServer {
             res.send(400, TEXT, recipientOk ? "bad size or offset" : "that device cannot receive encrypted files right now");
             return;
         }
-        String id = Texts.sha256(visitorId + "|" + req.query.get("key")).substring(0, 32);
+        String id = Texts.sha256(visitorId + "|" + generation + "|" + req.query.get("key")).substring(0, 32);
         try {
-            app.sealed().append(id, to, size, offset, req.body, req.length);
+            app.sealed().append(id, to, size, offset, req.body, req.length, generation);
         } catch (OffsetMismatchException e) {
             req.body.skip(req.length);
             res.send(409, JSON, "{\"offset\":" + e.expected() + "}");

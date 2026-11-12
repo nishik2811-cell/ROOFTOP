@@ -24,6 +24,11 @@ import rooftop.util.Texts;
 /** Quick checks for the risky parts. Run: java src/rooftop/SelfTest.java */
 public class SelfTest {
     public static void main(String[] args) throws Exception {
+        if (args.length > 0 && args[0].equals("--probe-lock")) {
+            try { new Rooftop(testPlatform(Path.of(args[1]))); }
+            catch (IOException e) { if (e.getMessage().contains("already running")) return; throw e; }
+            throw new AssertionError("second process acquired host storage");
+        }
         // file names from other devices cannot escape the inbox
         check(FileNames.clean("../../.bashrc").equals(".bashrc"), "path traversal stripped");
         check(FileNames.clean("C:\\Users\\x\\photo.jpg").equals("photo.jpg"), "windows path stripped");
@@ -159,13 +164,13 @@ public class SelfTest {
 
         // chat: the PC relays sealed messages it cannot read, padded, and forgets every one of them at session end
         Path chatHome = Files.createTempDirectory("rooftop-chat-test");
-        Rooftop room = new Rooftop(new Platform() {
-            public String deviceName() { return "test PC"; }
-            public Path inboxDir() { return chatHome.resolve("Rooftop"); }
-            public byte[] asset(String name) { return new byte[0]; }
-            public void setClipboard(String text) { }
-            public String clipboard() { return ""; }
-        });
+        String originalTemp = System.getProperty("java.io.tmpdir");
+        System.setProperty("java.io.tmpdir", chatHome.toString());
+        Rooftop room;
+        try {
+            room = new Rooftop(testPlatform(chatHome));
+        } finally { System.setProperty("java.io.tmpdir", originalTemp); }
+        sessionRegressions(room, chatHome);
         String hello = "meet at the roof at six, bring the speaker";
         byte[] msg = Rte2.sealMessage("{\"k\":\"msg\",\"c\":\"all\",\"t\":" + Texts.json(hello) + "}",
                 java.util.List.of(Rte2.raw(phoneB), Rte2.raw(phoneC)), sender);
@@ -213,6 +218,125 @@ public class SelfTest {
                 "PhoneClient device detection detects iPhone iOS Safari");
 
         System.out.println("all checks passed");
+    }
+
+    private static Platform testPlatform(Path home) {
+        return new Platform() {
+            public String deviceName() { return "test PC"; }
+            public Path inboxDir() { return home.resolve("Rooftop"); }
+            public byte[] asset(String name) { return new byte[0]; }
+            public void setClipboard(String text) { }
+            public String clipboard() { return ""; }
+        };
+    }
+
+    @FunctionalInterface
+    private interface WriteCheck { void run(InputStream in) throws Exception; }
+    @FunctionalInterface
+    private interface ResetCheck { void run() throws Exception; }
+
+    private static void resetDuringWrite(WriteCheck write, ResetCheck reset, String description) throws Exception {
+        var reading = new java.util.concurrent.CountDownLatch(1);
+        var resume = new java.util.concurrent.CountDownLatch(1);
+        InputStream paused = new ByteArrayInputStream(new byte[]{1}) {
+            public synchronized int read(byte[] bytes, int offset, int length) {
+                reading.countDown();
+                try { if (!resume.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("write timed out"); }
+                catch (InterruptedException e) { throw new AssertionError(e); }
+                return super.read(bytes, offset, length);
+            }
+        };
+        var task = new java.util.concurrent.FutureTask<Boolean>(() -> {
+            try { write.run(paused); return false; }
+            catch (IOException e) { return e.getMessage().contains("session ended"); }
+        });
+        new Thread(task).start();
+        try {
+            if (!reading.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("write did not start");
+            reset.run();
+        } finally { resume.countDown(); }
+        check(task.get(5, java.util.concurrent.TimeUnit.SECONDS), description);
+    }
+
+    private static String webRequest(Rooftop room, String path, java.util.Map<String, String> query, InputStream body) throws Exception {
+        var request = rooftop.net.Http.Request.class.getDeclaredConstructors()[0];
+        var response = rooftop.net.Http.Response.class.getDeclaredConstructors()[0];
+        var route = rooftop.net.WebServer.class.getDeclaredMethod("route", rooftop.net.Http.Request.class, rooftop.net.Http.Response.class);
+        request.setAccessible(true);
+        response.setAccessible(true);
+        route.setAccessible(true);
+        var bytes = new java.io.ByteArrayOutputStream();
+        route.invoke(room.web(), request.newInstance("POST", path, query, java.util.Map.of(), InetAddress.getLoopbackAddress(), body, 1L),
+                response.newInstance(bytes, false));
+        return bytes.toString(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static void sessionRegressions(Rooftop room, Path home) throws Exception {
+        java.util.Locale original = java.util.Locale.getDefault();
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("ar-EG"));
+            check(new PinGuard().pin().matches("[0-9]{6}"), "PIN uses ASCII digits under Arabic locale");
+        } finally { java.util.Locale.setDefault(original); }
+
+        Inbox inbox = room.inbox();
+        inbox.store("private.txt", new ByteArrayInputStream(new byte[]{1}), 1, "sender", "sender-id", "host", new Progress(1));
+        Inbox reopened = new Inbox(inbox.dir());
+        check(reopened.newestFirst().get(0).visibleTo("host") && !reopened.newestFirst().get(0).visibleTo("stranger"),
+                "files loaded after restart are host-only");
+        String id = "0123456789abcdef0123456789abcdef";
+        room.sealed().append(id, java.util.Set.of("phone"), 1, 0, new ByteArrayInputStream(new byte[]{1}), 1);
+        boolean sameProcessRefused = false;
+        try { new Rooftop(testPlatform(home)); }
+        catch (IOException e) { sameProcessRefused = e.getMessage().contains("already running"); }
+        check(sameProcessRefused, "duplicate construction in the same process is refused without releasing ownership");
+        Process child = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-Djava.io.tmpdir=" + home, "src/rooftop/SelfTest.java", "--probe-lock", home.toString())
+                .inheritIO().start();
+        try {
+            check(child.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) && child.exitValue() == 0
+                    && room.sealed().waitingFor("phone").size() == 1 && Files.exists(inbox.dir().resolve("private.txt")),
+                    "second host process is refused before touching inbox or pending relay files");
+        } finally { if (child.isAlive()) child.destroyForcibly(); }
+
+        resetDuringWrite(in -> inbox.store("late.txt", in, 1, "old sender", new Progress(1)),
+                room::newSession, "session reset rejects a streaming inbox upload");
+        check(inbox.newestFirst().isEmpty() && !Files.exists(inbox.dir().resolve("late.txt.part")), "cancelled upload leaves no file or partial");
+        resetDuringWrite(in -> inbox.append(id, 0, in, 1, new Progress(1)),
+                room::newSession, "session reset rejects a resumable inbox upload");
+        check(inbox.received(id) == 0, "cancelled resumable upload discards partial bytes");
+        long before = inbox.generation();
+        inbox.append(id, 0, new ByteArrayInputStream(new byte[]{1}), 1, new Progress(1), before);
+        room.newSession();
+        boolean rejected = false;
+        try { inbox.finish(id, "late.bin", 1, "sender", "sender", "*", before); }
+        catch (IOException e) { rejected = e.getMessage().contains("session ended"); }
+        check(rejected, "reset between append and finish cannot publish the file");
+        rejected = false;
+        try { inbox.store("late.bin", new ByteArrayInputStream(new byte[]{1}), 1, "sender", "sender", "*", new Progress(1), before); }
+        catch (IOException e) { rejected = e.getMessage().contains("session ended"); }
+        check(rejected, "request authenticated before reset cannot start writing afterward");
+        resetDuringWrite(in -> room.sealed().append(id, java.util.Set.of("host", "phone"), 1, 0, in, 1),
+                room::newSession, "session reset rejects an in-flight sealed upload, including a host recipient");
+        check(room.sealed().count() == 0 && room.sealed().waitingFor("host").isEmpty(), "cancelled sealed upload is not offered or retained");
+        String oldSession = room.session();
+        room.newSession();
+        String reply = webRequest(room, "/api/upload", java.util.Map.of("name", "late.txt", "session", oldSession),
+                new ByteArrayInputStream(new byte[]{1}));
+        check(reply.startsWith("HTTP/1.1 410") && inbox.newestFirst().isEmpty(), "HTTP retry with old browser session is rejected");
+        InputStream resetBody = new ByteArrayInputStream(new byte[]{1}) {
+            public synchronized int read(byte[] bytes, int offset, int length) {
+                try { room.newSession(); } catch (IOException e) { throw new AssertionError(e); }
+                return super.read(bytes, offset, length);
+            }
+        };
+        reply = webRequest(room, "/api/upload", java.util.Map.of("name", "late.txt", "session", room.session()), resetBody);
+        check(reply.startsWith("HTTP/1.1 500") && inbox.newestFirst().isEmpty() && room.history().newestFirst().isEmpty(),
+                "HTTP upload crossing reset publishes neither file nor history");
+        reply = webRequest(room, "/api/upload", java.util.Map.of("name", "current.txt", "session", room.session()),
+                new ByteArrayInputStream(new byte[]{1}));
+        check(reply.startsWith("HTTP/1.1 200") && inbox.fileCount() == 1 && room.history().newestFirst().size() == 1,
+                "new-session HTTP uploads still work");
+        room.newSession();
     }
 
     /**

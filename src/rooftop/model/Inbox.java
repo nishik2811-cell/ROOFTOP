@@ -35,6 +35,13 @@ public class Inbox {
     private final LinkedList<ReceivedText> texts = new LinkedList<>(); // newest first, capped
     private final Set<String> receiving = new HashSet<>();           // resumable ids being written right now
     private long totalReceivedBytes = 0;
+    private long generation;
+
+    public synchronized long generation() { return generation; }
+
+    private void checkGeneration(long expected) throws IOException {
+        if (expected != generation) throw new IOException("the transfer session ended");
+    }
 
     public static String category(String filename) {
         if (filename == null) return "file";
@@ -72,7 +79,7 @@ public class Inbox {
                     continue;
                 }
                 if (!Files.isRegularFile(p) || name.startsWith(".")) continue; // hidden files stay private
-                items.add(new ReceivedItem(p.getFileName().toString(), Files.size(p), "earlier", "", ReceivedItem.EVERYONE,
+                items.add(new ReceivedItem(p.getFileName().toString(), Files.size(p), "earlier", "", ThisDevice.ID,
                         Files.getLastModifiedTime(p).toMillis()));
                 takenNames.add(p.getFileName().toString());
             }
@@ -91,13 +98,29 @@ public class Inbox {
     /** Same, for a file addressed to one device (to = its id) or to everyone (to = "*"). */
     public ReceivedItem store(String rawName, InputStream in, long size, String from, String fromId, String to, Progress progress)
             throws IOException {
-        String name = reserve(rawName);
+        return store(rawName, in, size, from, fromId, to, progress, generation());
+    }
+
+    public ReceivedItem store(String rawName, InputStream in, long size, String from, String fromId, String to, Progress progress,
+            long expected) throws IOException {
+        String name;
+        synchronized (this) {
+            checkGeneration(expected);
+            name = reserve(rawName);
+        }
         Path tmp = dir.resolve(name + ".part");
         try {
             try (OutputStream out = Files.newOutputStream(tmp)) {
                 Streams.copy(in, out, size, progress);
             }
-            Files.move(tmp, dir.resolve(name), StandardCopyOption.REPLACE_EXISTING);
+            synchronized (this) {
+                checkGeneration(expected);
+                Files.move(tmp, dir.resolve(name), StandardCopyOption.REPLACE_EXISTING);
+                ReceivedItem item = new ReceivedItem(name, size, from, fromId, to, System.currentTimeMillis());
+                items.add(item);
+                totalReceivedBytes += size;
+                return item;
+            }
         } catch (IOException e) {
             Files.deleteIfExists(tmp);
             synchronized (this) {
@@ -105,12 +128,6 @@ public class Inbox {
             }
             throw e;
         }
-        ReceivedItem item = new ReceivedItem(name, size, from, fromId, to, System.currentTimeMillis());
-        synchronized (this) {
-            items.add(item);
-            totalReceivedBytes += size;
-        }
-        return item;
     }
 
     /* ---- resumable transfers: bytes go into a hidden ".<id>.part" file that survives a dropped connection ---- */
@@ -143,8 +160,13 @@ public class Inbox {
      * what arrived stays on disk and the next try continues from there.
      */
     public void append(String id, long offset, InputStream in, long count, Progress progress) throws IOException {
+        append(id, offset, in, count, progress, generation());
+    }
+
+    public void append(String id, long offset, InputStream in, long count, Progress progress, long expected) throws IOException {
         Path p = partial(id);
         synchronized (this) {
+            checkGeneration(expected);
             if (!receiving.add(id)) throw new IOException("this file is already arriving on another connection");
         }
         try {
@@ -153,15 +175,23 @@ public class Inbox {
             try (OutputStream out = Files.newOutputStream(p, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
                 Streams.copy(in, out, count, progress);
             }
+            synchronized (this) { checkGeneration(expected); }
         } finally {
             synchronized (this) {
-                receiving.remove(id);
+                try { if (expected != generation) Files.deleteIfExists(p); }
+                finally { receiving.remove(id); }
             }
         }
     }
 
     /** All bytes are here: give the file its real name and show it. */
     public ReceivedItem finish(String id, String rawName, long size, String from, String fromId, String to) throws IOException {
+        return finish(id, rawName, size, from, fromId, to, generation());
+    }
+
+    public synchronized ReceivedItem finish(String id, String rawName, long size, String from, String fromId, String to,
+            long expected) throws IOException {
+        checkGeneration(expected);
         Path p = partial(id);
         if (!Files.exists(p) || Files.size(p) != size) throw new IOException("file is incomplete");
         String name = reserve(rawName);
@@ -242,6 +272,7 @@ public class Inbox {
 
     /** A new session starts empty: messages cleared, and every file this inbox received is deleted. Returns how many. */
     public synchronized int newSession() throws IOException {
+        generation++;
         texts.clear();
         totalReceivedBytes = 0;
         int removed = 0;
