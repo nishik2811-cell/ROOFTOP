@@ -1990,7 +1990,7 @@ function toggleSendToMenu(open) {
 function renderRecipients(force = false) {
   const people = [];
   if (!state.local && state.meId) people.push({ id: state.meId, name: state.me, key: state.meKey || '', pc: true });
-  for (const d of state.devices) if (d.kind !== 'PC' && d.id) people.push({ id: d.id, name: d.name, key: d.key });
+  for (const d of [...state.devices].sort(byActivity)) if (d.kind !== 'PC' && d.id) people.push({ id: d.id, name: nameOf(d), key: d.key });
 
   // files: only devices with a key can be picked, and each says whether its key has been verified
   const files = [['*', 'Everyone', false], ...people.map((d) => [d.id,
@@ -2754,6 +2754,10 @@ async function receiveSink() {
   };
 }
 
+// The type comes from the sender. A blob URL runs with this page's origin, so an html or svg "photo" opened in a tab
+// or the preview could read this page's keys. Only types a browser shows without running scripts are kept.
+const safeType = (t) => /^(image\/(png|jpeg|gif|webp|avif|bmp)|(video|audio)\/[\w.+-]+|application\/pdf|text\/plain)$/.test(t || '') ? t : 'application/octet-stream';
+
 /** Downloads and opens one sealed file without retaining its decrypted chunks in JS memory. */
 async function openSealed(item, onProgress) {
   let sink = await receiveSink(), reader;
@@ -2764,13 +2768,13 @@ async function openSealed(item, onProgress) {
     const senderKey = E2E.b64(out.senderRaw);
     const sender = state.devices.find((d) => d.key === senderKey) || (state.meKey === senderKey ? { id: state.meId, name: state.me } : null);
     await fingerprint(senderKey);
-    let blob = await sink.finish(out.details.type || '');
+    let blob = await sink.finish(safeType(out.details.type));
     if (out.details.z === 'gzip') {
       const packed = sink;
       sink = await receiveSink();
       try {
         await blob.stream().pipeThrough(new DecompressionStream('gzip')).pipeTo(new WritableStream({ write: (chunk) => sink.write(chunk) }));
-        blob = await sink.finish(out.details.type || '');
+        blob = await sink.finish(safeType(out.details.type));
       } finally { packed.dispose(); }
     }
     return { name: out.details.name, transferId: out.details.transferId, transferCount: out.details.transferCount, blob, dispose: sink.dispose,
@@ -3269,10 +3273,27 @@ function conv(id) {
   }
   return convs.get(id);
 }
+// Two people with the same name are told apart by a short tag from their device id, and a device that has not
+// checked in for a few seconds (it probably closed the page) is marked inactive, so nobody picks a ghost by mistake.
+function nameOf(d) {
+  const twins = state.devices.some((x) => x.id !== d.id && x.name === d.name) || (d.id !== state.meId && d.name === state.me);
+  return d.name + (twins ? ` · ${String(d.id).slice(-4)}` : '') + ((d.idle || 0) >= 5 ? ' (inactive)' : '');
+}
+const present = (id) => id === state.youId || id === state.meId || state.devices.some((d) => d.id === id);
+const byActivity = (a, b) => (a.idle || 0) - (b.idle || 0);
 const person = (id) => (id === state.youId ? { id, name: state.local ? state.me : state.you, key: myKey }
   : id === state.meId ? { id, name: state.me, key: state.meKey || '' }
-  : (({ name, key }) => ({ id, name, key }))(state.devices.find((d) => d.id === id) || { name: 'someone who left', key: '' }));
-const convName = (c) => (c.kind === 'p' ? person(c.peer).name : c.name);
+  : (({ name, key, idle }) => ({ id, name: name === 'someone who left' ? name : nameOf({ id, name, idle }), key }))(state.devices.find((d) => d.id === id) || { name: 'someone who left', key: '' }));
+// A personal chat keeps the name of the person it is with, and says so plainly once they have left.
+function convName(c) {
+  if (c.kind !== 'p') return c.name;
+  if (present(c.peer)) {
+    const name = person(c.peer).name;
+    c.lastName = name.replace(/ \(inactive\)$/, '');
+    return name;
+  }
+  return `${c.lastName || 'Someone'} (left)`;
+}
 
 /** Everyone who gets a message in this conversation, as { id, key }: only devices with a key, this one included. */
 function chatRecipients(c, withMe = true) {
@@ -3469,7 +3490,7 @@ function renderConvList() {
   const people = [...convs.values()].filter((c) => c.kind === 'p' && c.msgs.length).sort(byRecent);
   const known = new Set(people.map((c) => c.peer));
   // everyone else in the room, to start a personal chat with
-  const others = [...state.devices.filter((d) => d.kind !== 'PC'), ...(state.local ? [] : [{ id: state.meId, name: state.me, key: state.meKey }])]
+  const others = [...state.devices.filter((d) => d.kind !== 'PC').sort(byActivity), ...(state.local ? [] : [{ id: state.meId, name: state.me, key: state.meKey }])]
     .filter((d) => d.id && !known.has(d.id));
   const row = (c) => {
     const last = [...c.msgs].reverse().find((m) => !m.system);
@@ -3490,7 +3511,7 @@ function renderConvList() {
     items.push(el('li', { className: 'conv-head', textContent: 'Start a chat' }));
     for (const d of others) {
       const b = el('button', { type: 'button', className: 'conv', disabled: !d.key }, avatar(d),
-        el('span', { className: 'conv-text' }, el('span', { className: 'conv-name', textContent: d.name }),
+        el('span', { className: 'conv-text' }, el('span', { className: 'conv-name', textContent: d.id === state.meId ? d.name : nameOf(d) }),
           el('span', { className: 'conv-last', textContent: d.key ? (isVerified(d.key) ? '✓ verified' : 'not verified') : 'no key, cannot chat yet' })));
       b.addEventListener('click', () => openChat('p:' + d.id));
       items.push(el('li', {}, b));
@@ -3521,7 +3542,11 @@ function renderThread() {
   $('#threadFace').replaceChildren(convFace(c));
   $('#threadTitle').textContent = convName(c);
   const peer = c.kind === 'p' ? person(c.peer) : null;
-  $('#threadSub').textContent = c.kind === 'all' ? `Everyone in the room · end-to-end encrypted`
+  const gone = c.kind === 'p' && !present(c.peer);
+  $('#note').disabled = gone;
+  $('#note').placeholder = gone ? `${c.lastName || 'They'} left, so messages cannot reach them` : 'Message';
+  $('#threadSub').textContent = gone ? 'has left · messages cannot reach them'
+    : c.kind === 'all' ? `Everyone in the room · end-to-end encrypted`
     : c.kind === 'g' ? [...c.members].map((id) => (id === state.youId ? 'You' : person(id).name)).join(', ')
     : peer.key ? `${isVerified(peer.key) ? '✓ verified' : 'not verified'} · end-to-end encrypted` : 'no key, cannot chat yet';
   $('#leaveGroup').hidden = c.kind !== 'g';
@@ -3563,6 +3588,7 @@ $('#noteForm').addEventListener('submit', async (e) => {
   const error = $('#noteError');
   if (!c || !text) return;
   error.textContent = '';
+  if (c.kind === 'p' && !present(c.peer)) { error.textContent = `Not sent: ${c.lastName || 'they'} left, so it could not reach them.`; return; }
   try {
     await sendEnvelope({ k: 'msg', ...wireConv(c), t: text }, c);
     $('#note').value = '';

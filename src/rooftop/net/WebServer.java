@@ -102,6 +102,12 @@ public class WebServer {
     private void route(Http.Request req, Http.Response res) throws IOException {
         try {
             res.header("X-Content-Type-Options", "nosniff").header("Referrer-Policy", "no-referrer");
+            if (req.remote.isLoopbackAddress() && !(isLocalName(hostOf(req.header("Host")))
+                    && (req.header("Origin") == null || isLocalName(hostOf(req.header("Origin").replaceFirst("^https?://", "")))))) {
+                // the PC's own page needs no PIN, so a web page elsewhere (or a DNS name rebound to 127.0.0.1) must not reach it
+                res.send(403, TEXT, "forbidden");
+                return;
+            }
             if (PAGES.containsKey(req.path)) {
                 String[] page = PAGES.get(req.path);
                 res.header("Cache-Control", "no-cache").send(200, page[1], app.platform().asset(page[0]));
@@ -121,6 +127,17 @@ public class WebServer {
             app.log().add("web error: " + e);
             if (!res.isCommitted()) res.send(500, TEXT, "server error");
         }
+    }
+
+    /** "localhost:8080" -> "localhost", "[::1]:8443" -> "[::1]"; null stays null. */
+    private static String hostOf(String hostAndPort) {
+        if (hostAndPort == null) return null;
+        int end = hostAndPort.startsWith("[") ? hostAndPort.indexOf(']') + 1 : hostAndPort.indexOf(':');
+        return (end > 0 ? hostAndPort.substring(0, end) : hostAndPort).toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isLocalName(String host) {
+        return "localhost".equals(host) || "127.0.0.1".equals(host) || "[::1]".equals(host);
     }
 
     private void api(Http.Request req, Http.Response res, String route) throws IOException, WrongPinException {
@@ -351,6 +368,11 @@ public class WebServer {
             res.send(400, TEXT, recipientOk ? "bad size or offset" : "that device cannot receive encrypted files right now");
             return;
         }
+        if (offset == 0 && size > java.nio.file.Files.getFileStore(app.sealed().dir()).getUsableSpace() - (512L << 20)) {
+            req.body.skip(req.length); // keep half a GB free: a device with the PIN must not be able to fill this disk
+            res.send(507, TEXT, "not enough free space on the host");
+            return;
+        }
         String id = Texts.sha256(visitorId + "|" + generation + "|" + req.query.get("key")).substring(0, 32);
         try {
             app.sealed().append(id, to, size, offset, req.body, req.length, generation);
@@ -454,6 +476,7 @@ public class WebServer {
                     ? ",\"platform\":" + Texts.json(pc.platform()) + ",\"browser\":" + Texts.json(pc.browser())
                     : ",\"platform\":\"Desktop\",\"browser\":\"Native\"";
             devices.add("{\"id\":" + Texts.json(d.id()) + ",\"name\":" + Texts.json(d.name()) + ",\"kind\":" + Texts.json(d.kind())
+                    + ",\"idle\":" + d.secondsSinceSeen()
                     + ",\"key\":" + Texts.json(d.publicKey()) + extra + "}");
         }
 

@@ -102,6 +102,8 @@ node test/chat-browser.mjs
 node test/batch-browser.mjs
 node test/transfer-state.mjs
 node test/layout-check.mjs
+node test/twins-browser.mjs
+node test/file-type-browser.mjs
 ```
 
 Set `ROOFTOP_PLAYWRIGHT=/path/to/playwright/index.mjs` if Playwright is not installed in the project, and `ROOFTOP_BROWSER_CHANNEL=chrome` to use the Chrome already on the computer.

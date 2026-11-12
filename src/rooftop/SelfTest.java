@@ -259,6 +259,11 @@ public class SelfTest {
     }
 
     private static String webRequest(Rooftop room, String path, java.util.Map<String, String> query, InputStream body) throws Exception {
+        return webRequest(room, path, query, body, java.util.Map.of("host", "localhost:8080"));
+    }
+
+    private static String webRequest(Rooftop room, String path, java.util.Map<String, String> query, InputStream body,
+            java.util.Map<String, String> headers) throws Exception {
         var request = rooftop.net.Http.Request.class.getDeclaredConstructors()[0];
         var response = rooftop.net.Http.Response.class.getDeclaredConstructors()[0];
         var route = rooftop.net.WebServer.class.getDeclaredMethod("route", rooftop.net.Http.Request.class, rooftop.net.Http.Response.class);
@@ -266,7 +271,7 @@ public class SelfTest {
         response.setAccessible(true);
         route.setAccessible(true);
         var bytes = new java.io.ByteArrayOutputStream();
-        route.invoke(room.web(), request.newInstance("POST", path, query, java.util.Map.of(), InetAddress.getLoopbackAddress(), body, 1L),
+        route.invoke(room.web(), request.newInstance("POST", path, query, headers, InetAddress.getLoopbackAddress(), body, 1L),
                 response.newInstance(bytes, false));
         return bytes.toString(java.nio.charset.StandardCharsets.UTF_8);
     }
@@ -323,6 +328,13 @@ public class SelfTest {
         String reply = webRequest(room, "/api/upload", java.util.Map.of("name", "late.txt", "session", oldSession),
                 new ByteArrayInputStream(new byte[]{1}));
         check(reply.startsWith("HTTP/1.1 410") && inbox.newestFirst().isEmpty(), "HTTP retry with old browser session is rejected");
+        String session = room.session();
+        check(webRequest(room, "/api/session", java.util.Map.of(), new ByteArrayInputStream(new byte[0]),
+                java.util.Map.of("host", "localhost:8080", "origin", "https://evil.example")).startsWith("HTTP/1.1 403")
+                && room.session().equals(session), "another website cannot reach the PC's own page");
+        check(webRequest(room, "/api/session", java.util.Map.of(), new ByteArrayInputStream(new byte[0]),
+                java.util.Map.of("host", "rebound.example:8080")).startsWith("HTTP/1.1 403") && room.session().equals(session),
+                "a DNS name rebound to 127.0.0.1 cannot reach the PC's own page");
         InputStream resetBody = new ByteArrayInputStream(new byte[]{1}) {
             public synchronized int read(byte[] bytes, int offset, int length) {
                 try { room.newSession(); } catch (IOException e) { throw new AssertionError(e); }

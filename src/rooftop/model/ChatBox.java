@@ -15,6 +15,7 @@ import java.util.Set;
 public class ChatBox {
     public static final int MAX_BYTES = 64 * 1024;
     private static final int KEEP = 5000;
+    private static final long KEEP_BYTES = 32L << 20; // 5000 full envelopes would be 320 MB of heap
 
     /** One sealed envelope. {@code expires} is 0 for "until the session ends". */
     public record Envelope(long seq, String from, Set<String> to, byte[] bytes, long at, long expires) {
@@ -30,7 +31,9 @@ public class ChatBox {
         long now = System.currentTimeMillis();
         envelopes.add(new Envelope(++seq, from, Collections.unmodifiableSet(to), bytes, now, ttlSeconds > 0 ? now + ttlSeconds * 1000L : 0));
         envelopes.removeIf(e -> !e.alive(now));
-        while (envelopes.size() > KEEP) envelopes.removeFirst();
+        long total = 0;
+        for (Envelope e : envelopes) total += e.bytes().length;
+        while (envelopes.size() > KEEP || total > KEEP_BYTES) total -= envelopes.removeFirst().bytes().length;
         return seq;
     }
 
