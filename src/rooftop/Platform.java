@@ -19,4 +19,13 @@ public interface Platform {
 
     /** The clipboard text, or null when this platform is not allowed to read it right now. */
     String clipboard();
+
+    /**
+     * A secret this device's own page shows in a cookie, or null when no cookie is needed. On Android every other app
+     * on the phone can reach 127.0.0.1 too, so there the page must prove it is ours; on a PC only the user's own
+     * programs can, and the browser address bar needs no setup.
+     */
+    default String localSecret() {
+        return null;
+    }
 }

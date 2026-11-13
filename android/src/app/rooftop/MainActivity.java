@@ -53,6 +53,9 @@ public class MainActivity extends Activity {
         web.setBackgroundColor(Color.parseColor("#d4cbbe"));
         setContentView(web);
 
+        // proves to the server that requests come from this page, not another app on the phone (see Platform.localSecret)
+        android.webkit.CookieManager.getInstance().setCookie(HOME, "rooftop-local=" + AndroidPlatform.LOCAL_SECRET + "; HttpOnly; SameSite=Strict");
+
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);

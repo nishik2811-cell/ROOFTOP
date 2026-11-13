@@ -75,8 +75,9 @@ public class WebServer {
     }
 
     public void start() throws IOException {
-        // bounded: at most 64 requests at once (each page keeps one waiting in /api/wait); beyond that a request is refused
-        ExecutorService pool = new java.util.concurrent.ThreadPoolExecutor(4, 64, 30, java.util.concurrent.TimeUnit.SECONDS,
+        // bounded: at most 256 requests at once (each page keeps one waiting in /api/wait, and one address may hold 48,
+        // see Http); beyond that a request is refused
+        ExecutorService pool = new java.util.concurrent.ThreadPoolExecutor(4, 256, 30, java.util.concurrent.TimeUnit.SECONDS,
                 new java.util.concurrent.SynchronousQueue<>());
         // 127.0.0.1 explicitly: Android's getLoopbackAddress() is ::1, which the page at 127.0.0.1 cannot reach
         ServerSocket local = new ServerSocket(Wire.LOCAL_PORT, 50, InetAddress.getByName("127.0.0.1"));
@@ -106,6 +107,12 @@ public class WebServer {
                     && (req.header("Origin") == null || isLocalName(hostOf(req.header("Origin").replaceFirst("^https?://", "")))))) {
                 // the PC's own page needs no PIN, so a web page elsewhere (or a DNS name rebound to 127.0.0.1) must not reach it
                 res.send(403, TEXT, "forbidden");
+                return;
+            }
+            String secret = app.platform().localSecret();
+            if (secret != null && req.remote.isLoopbackAddress()
+                    && !java.util.Arrays.asList(String.valueOf(req.header("Cookie")).split(";\\s*")).contains("rooftop-local=" + secret)) {
+                res.send(403, TEXT, "forbidden"); // another app on this phone, not our own page
                 return;
             }
             if (PAGES.containsKey(req.path)) {
@@ -442,8 +449,22 @@ public class WebServer {
     private PhoneClient visitor(Http.Request req) {
         String ua = req.header("User-Agent") != null ? req.header("User-Agent") : "";
         String browser = req.query.getOrDefault("device", "");
-        String id = "web " + req.remote.getHostAddress() + (browser.matches("[0-9a-f]{16,40}") ? " " + browser : "");
-        NetworkDevice device = app.devices().getOrAdd(id, () -> new PhoneClient(ua, req.remote, id));
+        String base = "web " + req.remote.getHostAddress();
+        String wanted = browser.matches("[0-9a-f]{16,40}") ? base + " " + browser : base;
+        // a device with the PIN could invent endless browser ids: one address keeps at most 8, the longest gone makes room
+        NetworkDevice device;
+        synchronized (app.devices()) { // check and add as one step, or 20 requests at once all get in
+            if (!wanted.equals(base) && app.devices().find(wanted).isEmpty()) {
+                List<PhoneClient> same = app.devices().ofType(PhoneClient.class).stream().filter(d -> d.id().startsWith(base + " ")).toList();
+                if (same.size() >= 8) {
+                    PhoneClient stalest = same.stream().max(Comparator.comparingLong(NetworkDevice::secondsSinceSeen)).orElseThrow();
+                    if (stalest.isOnline()) wanted = base; // 8 browsers at once from one address: the rest share one id
+                    else app.devices().remove(stalest.id());
+                }
+            }
+            String id = wanted;
+            device = app.devices().getOrAdd(id, () -> new PhoneClient(ua, req.remote, id));
+        }
         device.touch();
         return (PhoneClient) device; // keys starting with "web " only ever hold PhoneClients
     }

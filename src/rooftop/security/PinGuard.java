@@ -10,9 +10,17 @@ import java.util.Set;
 import rooftop.error.WrongPinException;
 import rooftop.util.Texts;
 
-/** One PIN per session. Each device gets a few tries before it is shut out. */
+/**
+ * One PIN per session. Each device gets a few tries before it is shut out, and the whole network together gets at most
+ * {@link #MAX_FAILS_PER_MINUTE} wrong guesses a minute, so changing address cannot speed up guessing. Devices that
+ * already got in are never slowed down.
+ */
 public class PinGuard {
     private static final int MAX_FAILS = 10;
+    private static final int MAX_FAILS_PER_MINUTE = 20; // a million PINs at 20 a minute: about 17 days for even odds
+
+    private final java.util.ArrayDeque<Long> recentFails = new java.util.ArrayDeque<>();
+    private final Set<String> trusted = new HashSet<>(); // addresses that gave the right PIN this session
 
     private volatile String pin = newPin();
     private final Map<String, Integer> fails = new HashMap<>();
@@ -39,27 +47,55 @@ public class PinGuard {
         pin = newPin();
         fails.clear();
         blocked.clear();
+        trusted.clear();
+        recentFails.clear();
+    }
+
+    /**
+     * Who gets the tries: an IPv4 address, or an IPv6 /64 network. One device can pick any address inside its /64,
+     * so counting IPv6 per address would give it endless tries.
+     */
+    public static String group(String ip) {
+        if (ip.indexOf(':') < 0) return ip;
+        String[] parts = ip.split("%")[0].split(":", -1);
+        return parts.length >= 4 ? String.join(":", java.util.Arrays.copyOf(parts, 4)) + "::/64" : ip;
+    }
+
+    /** Too many wrong guesses on the whole network in the last minute: newcomers wait. */
+    private boolean throttled(String key) {
+        long now = System.currentTimeMillis();
+        while (!recentFails.isEmpty() && now - recentFails.peekFirst() > 60_000) recentFails.removeFirst();
+        return !trusted.contains(key) && recentFails.size() >= MAX_FAILS_PER_MINUTE;
+    }
+
+    private boolean countFail(String key) {
+        recentFails.addLast(System.currentTimeMillis());
+        int count = fails.merge(key, 1, Integer::sum);
+        if (count >= MAX_FAILS) blocked.add(key);
+        return count >= MAX_FAILS;
     }
 
     /** Throws if this device already used up its tries. */
     public synchronized void checkNotBlocked(String ip) throws WrongPinException {
-        if (blocked.contains(ip)) throw new WrongPinException(ip, true);
+        if (blocked.contains(group(ip))) throw new WrongPinException(ip, true);
+        if (throttled(group(ip))) throw new WrongPinException(ip, false);
     }
 
     /** A PC-to-PC handshake from this device failed its PIN check: one try used up. */
     public synchronized boolean fail(String ip) {
-        int count = fails.merge(ip, 1, Integer::sum);
-        if (count >= MAX_FAILS) blocked.add(ip);
-        return count >= MAX_FAILS;
+        return countFail(group(ip));
     }
 
     public synchronized void check(String ip, String attempt) throws WrongPinException {
-        if (blocked.contains(ip)) throw new WrongPinException(ip, true);
+        String key = group(ip);
+        if (blocked.contains(key)) throw new WrongPinException(ip, true);
+        if (throttled(key)) throw new WrongPinException(ip, false); // not even checked: a guess now tells nothing
         if (attempt != null && MessageDigest.isEqual(
-                attempt.getBytes(StandardCharsets.UTF_8), pin.getBytes(StandardCharsets.UTF_8))) return;
+                attempt.getBytes(StandardCharsets.UTF_8), pin.getBytes(StandardCharsets.UTF_8))) {
+            trusted.add(key);
+            return;
+        }
         if (retired.contains(attempt)) throw new WrongPinException(ip, false); // a phone from an old session, not a guess
-        int count = fails.merge(ip, 1, Integer::sum);
-        if (count >= MAX_FAILS) blocked.add(ip);
-        throw new WrongPinException(ip, count >= MAX_FAILS);
+        throw new WrongPinException(ip, countFail(key));
     }
 }

@@ -32,6 +32,10 @@ public final class Http {
     private static final int MAX_LINE = 8192;
     private static final int MAX_HEADERS = 100;
     private static final int TIMEOUT_MS = 60_000;
+    private static final int HEAD_TIMEOUT_MS = 10_000; // to send the request line and headers
+    /** Connections one address (or IPv6 /64) may hold open at once; this PC's own page is not limited. */
+    private static final int MAX_PER_ADDRESS = 48;
+    private static final Map<String, Integer> open = new java.util.concurrent.ConcurrentHashMap<>();
 
     private Http() {
     }
@@ -132,9 +136,21 @@ public final class Http {
             while (!server.isClosed()) {
                 try {
                     Socket socket = server.accept();
+                    InetAddress from = socket.getInetAddress();
+                    String key = from.isLoopbackAddress() ? null : rooftop.security.PinGuard.group(from.getHostAddress());
+                    // one device on the network must not take every worker, PIN or not
+                    if (key != null && open.merge(key, 1, Integer::sum) > MAX_PER_ADDRESS) {
+                        open.merge(key, -1, Integer::sum);
+                        socket.close();
+                        continue;
+                    }
                     try {
-                        pool.execute(() -> handle(socket, handler, log));
+                        pool.execute(() -> {
+                            try { handle(socket, handler, log); }
+                            finally { if (key != null) open.merge(key, -1, (a, b) -> a + b == 0 ? null : a + b); }
+                        });
                     } catch (java.util.concurrent.RejectedExecutionException busy) {
+                        if (key != null) open.merge(key, -1, (a, b) -> a + b == 0 ? null : a + b);
                         socket.close(); // every worker is busy: the browser retries
                     }
                 } catch (IOException e) {
@@ -146,7 +162,7 @@ public final class Http {
 
     private static void handle(Socket socket, Handler handler, Consumer<String> log) {
         try (socket) {
-            socket.setSoTimeout(TIMEOUT_MS);
+            socket.setSoTimeout(HEAD_TIMEOUT_MS);
             socket.setTcpNoDelay(true); // send replies at once: Nagle + delayed ACKs otherwise stall every request ~40 ms
             InputStream in = new BufferedInputStream(socket.getInputStream(), 64 * 1024);
             OutputStream out = new BufferedOutputStream(socket.getOutputStream(), 64 * 1024);
@@ -164,6 +180,7 @@ public final class Http {
                 if (colon > 0) headers.put(line.substring(0, colon).trim().toLowerCase(Locale.ROOT), line.substring(colon + 1).trim());
                 if (headers.size() > MAX_HEADERS) throw new IOException("too many headers");
             }
+            socket.setSoTimeout(TIMEOUT_MS); // headers are in: the body (a few MB) gets longer
             URI uri;
             try {
                 uri = new URI(parts[1]);

@@ -18,6 +18,14 @@ import rooftop.Platform;
 
 /** The phone's side of {@link Platform}: page files from the APK, the Android clipboard, app storage. */
 final class AndroidPlatform implements Platform {
+    /** New each time the app starts; MainActivity hands it to its WebView as a cookie no other app can read. */
+    static final String LOCAL_SECRET = new java.math.BigInteger(130, new java.security.SecureRandom()).toString(32);
+
+    @Override
+    public String localSecret() {
+        return LOCAL_SECRET;
+    }
+
     private final Context context;
     private final ClipboardManager clipboard;
     private final Handler main = new Handler(Looper.getMainLooper());

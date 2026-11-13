@@ -204,6 +204,18 @@ public class SelfTest {
         boolean shutOut = false;
         try { guard2.checkNotBlocked("9.9.9.9"); } catch (rooftop.error.WrongPinException e) { shutOut = e.isBlocked(); }
         check(shutOut, "after 10 failed handshakes that PC is shut out");
+        rooftop.security.PinGuard guard3 = new rooftop.security.PinGuard();
+        String pin3 = guard3.pin();
+        guard3.check("10.0.0.2", pin3); // a phone that got in before the attack
+        boolean v6Blocked = false;
+        for (int i = 0; i < 10; i++) try { guard3.check("2001:db8:1:2:0:0:0:" + i, "000000"); } catch (rooftop.error.WrongPinException e) { v6Blocked = e.isBlocked(); }
+        check(v6Blocked, "a new IPv6 address per guess still counts as one device (per /64)");
+        for (int i = 0; i < 20; i++) try { guard3.check("10.1." + i + ".1", "000000"); } catch (rooftop.error.WrongPinException e) { /* guessing */ }
+        boolean throttled = false;
+        try { guard3.check("10.2.0.1", pin3); } catch (rooftop.error.WrongPinException e) { throttled = true; }
+        boolean knownOk = true;
+        try { guard3.check("10.0.0.2", pin3); } catch (rooftop.error.WrongPinException e) { knownOk = false; }
+        check(throttled && knownOk, "after 20 wrong guesses in a minute, even the right PIN from a new address waits; phones already in carry on");
 
         // Model enhancements: file category and client identification
         check("image".equals(rooftop.model.Inbox.category("photo.jpg")), "Inbox category image");

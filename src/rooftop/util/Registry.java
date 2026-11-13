@@ -24,6 +24,10 @@ public class Registry<K, V extends Device> {
         return entries.computeIfAbsent(key, k -> create.get());
     }
 
+    public synchronized void remove(K key) {
+        entries.remove(key);
+    }
+
     public synchronized List<V> all() {
         return new ArrayList<>(entries.values());
     }
