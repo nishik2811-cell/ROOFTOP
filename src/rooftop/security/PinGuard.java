@@ -23,6 +23,8 @@ public class PinGuard {
     private final Set<String> trusted = new HashSet<>(); // addresses that gave the right PIN this session
 
     private volatile String pin = newPin();
+    /** What the QR code and link carry instead of the PIN: too long to guess, so it never waits behind guessers. */
+    private volatile String linkKey = newLinkKey();
     private final Map<String, Integer> fails = new HashMap<>();
     private final Set<String> blocked = new HashSet<>();
     private final Set<String> retired = new HashSet<>(); // PINs of ended sessions
@@ -41,10 +43,24 @@ public class PinGuard {
         return pin;
     }
 
+    /** 12 random letters and digits, about 60 bits: no one finds it by trying. */
+    private static String newLinkKey() {
+        SecureRandom random = new SecureRandom();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 12; i++) sb.append("abcdefghjkmnpqrstuvwxyz23456789".charAt(random.nextInt(31)));
+        return sb.toString();
+    }
+
+    public String linkKey() {
+        return linkKey;
+    }
+
     /** Ends the session: a fresh PIN, and every device starts again with a clean record. */
     public synchronized void renew() {
         retired.add(pin);
+        retired.add(linkKey);
         pin = newPin();
+        linkKey = newLinkKey();
         fails.clear();
         blocked.clear();
         trusted.clear();
@@ -78,7 +94,7 @@ public class PinGuard {
     /** Throws if this device already used up its tries. */
     public synchronized void checkNotBlocked(String ip) throws WrongPinException {
         if (blocked.contains(group(ip))) throw new WrongPinException(ip, true);
-        if (throttled(group(ip))) throw new WrongPinException(ip, false);
+        if (throttled(group(ip))) throw new WrongPinException(ip, false, true);
     }
 
     /** A PC-to-PC handshake from this device failed its PIN check: one try used up. */
@@ -89,13 +105,20 @@ public class PinGuard {
     public synchronized void check(String ip, String attempt) throws WrongPinException {
         String key = group(ip);
         if (blocked.contains(key)) throw new WrongPinException(ip, true);
-        if (throttled(key)) throw new WrongPinException(ip, false); // not even checked: a guess now tells nothing
-        if (attempt != null && MessageDigest.isEqual(
-                attempt.getBytes(StandardCharsets.UTF_8), pin.getBytes(StandardCharsets.UTF_8))) {
+        if (matches(attempt, linkKey)) { // scanned the QR code: in at once, even while someone is guessing PINs
+            trusted.add(key);
+            return;
+        }
+        if (throttled(key)) throw new WrongPinException(ip, false, true); // not even checked: a guess now tells nothing
+        if (matches(attempt, pin)) {
             trusted.add(key);
             return;
         }
         if (retired.contains(attempt)) throw new WrongPinException(ip, false); // a phone from an old session, not a guess
         throw new WrongPinException(ip, countFail(key));
+    }
+
+    private static boolean matches(String attempt, String secret) {
+        return attempt != null && MessageDigest.isEqual(attempt.getBytes(StandardCharsets.UTF_8), secret.getBytes(StandardCharsets.UTF_8));
     }
 }

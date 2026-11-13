@@ -97,7 +97,7 @@ public class WebServer {
 
     /** The link the QR code points at. */
     public String phoneUrl(String ip) {
-        return scheme + "://" + ip + ":" + Wire.HTTPS_PORT + "/?pin=" + app.pins().pin();
+        return scheme + "://" + ip + ":" + Wire.HTTPS_PORT + "/?pin=" + app.pins().linkKey(); // the PIN itself is for typing by hand
     }
 
     private void route(Http.Request req, Http.Response res) throws IOException {
@@ -125,7 +125,7 @@ public class WebServer {
                 res.send(404, TEXT, "not found");
             }
         } catch (WrongPinException e) {
-            res.send(403, JSON, "{\"error\":\"pin\",\"blocked\":" + e.isBlocked() + "}");
+            res.send(403, JSON, "{\"error\":\"pin\",\"blocked\":" + e.isBlocked() + ",\"busy\":" + e.isBusy() + "}");
         } catch (InvalidFileNameException e) {
             res.send(400, TEXT, e.getMessage());
         } catch (NoSuchFileException e) {

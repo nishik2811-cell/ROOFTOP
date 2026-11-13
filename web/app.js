@@ -91,6 +91,7 @@ async function call(path, options) {
     const body = await res.json().catch(() => ({}));
     askPin(body.blocked
       ? 'Too many wrong tries from this device. Restart Rooftop on the PC to reset.'
+      : body.busy ? 'Someone on this network just tried a lot of wrong PINs. Scan the QR code on the PC to join now, or try the PIN again in a minute.'
       : pin ? 'That PIN did not work. The PC may have started a new session, so check its screen.' : '');
     throw new PinError();
   }

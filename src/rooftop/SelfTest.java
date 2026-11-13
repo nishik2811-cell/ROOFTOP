@@ -216,6 +216,11 @@ public class SelfTest {
         boolean knownOk = true;
         try { guard3.check("10.0.0.2", pin3); } catch (rooftop.error.WrongPinException e) { knownOk = false; }
         check(throttled && knownOk, "after 20 wrong guesses in a minute, even the right PIN from a new address waits; phones already in carry on");
+        boolean scanOk = true;
+        try { guard3.check("10.3.0.1", guard3.linkKey()); } catch (rooftop.error.WrongPinException e) { scanOk = false; }
+        boolean busyShown = false;
+        try { guard3.check("10.4.0.1", pin3); } catch (rooftop.error.WrongPinException e) { busyShown = e.isBusy(); }
+        check(scanOk && busyShown, "meanwhile a phone that scans the QR code gets in at once, and one typing the PIN is told why it waits");
 
         // Model enhancements: file category and client identification
         check("image".equals(rooftop.model.Inbox.category("photo.jpg")), "Inbox category image");
