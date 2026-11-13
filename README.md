@@ -35,7 +35,7 @@ You need **Java 22 or newer** ([adoptium.net](https://adoptium.net)) on the comp
 Or from the project folder on any of them: `java src/rooftop/Main.java`
 
 1. **On the computer**, open [http://localhost:8080](http://localhost:8080). You will see a QR code and a PIN.
-2. **On each phone**, scan the QR code. The first time, the browser says the connection is "not private": tap through it (*Advanced, Proceed* on Android, *Show details, visit this website* on iPhone). The connection is still encrypted; the certificate is simply made by your computer instead of a company.
+2. **On each phone**, scan the QR code (or open the address shown and type the PIN). The first time, the browser says the connection is "not private": tap through it (*Advanced, Proceed* on Android, *Show details, visit this website* on iPhone). The connection is still encrypted; the certificate is simply made by your computer instead of a company.
 3. **Send.** Tap **Send files**, pick files, and choose who gets them under **Send to**: everyone, one person, or a few.
 
 Phones must be on the same Wi-Fi or hotspot as the computer. Some school, office and cafe networks keep devices apart; a phone hotspot works instead. If phones cannot connect, allow Java through the computer's firewall (Rooftop uses ports 8443/TCP for phones, 45454/UDP and 45455/TCP between computers).
@@ -52,7 +52,7 @@ Phones must be on the same Wi-Fi or hotspot as the computer. Some school, office
 - **Share text and the clipboard** between phone and computer.
 - **Check who you are talking to.** Each pair of devices shows a six-digit safety code; compare it, or scan the other device's QR code, to be sure no one swapped a key.
 - **See the history** of everything sent and received in the session, under Inbox.
-- **Start fresh.** *End session, start new* gives a new PIN, disconnects everyone and clears the session.
+- **Start fresh.** *End session, start new* gives a new PIN and QR code, disconnects everyone and clears the session.
 
 ## How it works
 
@@ -67,11 +67,19 @@ flowchart LR
 - **To the host itself:** the host's own page decrypts the file and saves it in `~/Rooftop`. Those files are stored like any other download.
 - **Computer to computer:** the connection is set up with the receiving computer's PIN (SPAKE2), so a wrong PIN or someone in the middle fails before any data moves. Both computers show a matching safety code.
 
+**Keeping strangers out.**
+
+- **Joining:** the QR code carries a long random key that cannot be guessed. The six-digit PIN is only for typing by hand. Wrong PINs are limited to 10 per device and 20 a minute across the whole network, so guessing would take weeks. Phones that scan the QR code, or are already connected, are never slowed down.
+- **The host's own page** at `localhost` needs no PIN, so it only answers this computer's own pages, never another website open in the browser. On Android, other apps on the phone cannot use it either.
+- **Received files** can be saved, but never run as code inside Rooftop. A web page disguised as a photo or PDF is only offered as a download.
+- **Fair use:** one device on the network cannot fill the host's disk or memory, flood the device list, or take up every connection.
+
 **Honest limits.** The certificate is self-signed, which is why browsers warn the first time. The pages themselves come from the host, so a host running modified code could serve a dishonest page; the safety codes catch a swapped key, not a swapped page. The host can see roughly how big files are and when they are sent, but not their names or contents.
 
 ## Good to know
 
 - After a host restart, existing inbox files are visible only to the host. Send them again to share them with other devices.
+- Two people with the same name are told apart by a short tag, like *Asha · 2b74*. Someone who closed Rooftop is marked *inactive*, and a chat with someone who left says so instead of sending into nowhere.
 - Keep the receiving page open while files are being saved. Phones can pause pages that are in the background.
 - Files received in a phone's browser are kept in that page until you save them; reloading the page fetches them again from the host, while the host still has them.
 - Received files stream into temporary browser disk storage where supported. If storage is unavailable, receiving uses a shared 64 MB memory limit and stops safely when full. Disk quota errors retain the host copy. Temporary disk files are cleaned on page close; crash leftovers are cleaned on the next receive.
