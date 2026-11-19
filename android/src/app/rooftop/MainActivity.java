@@ -67,7 +67,18 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                return !request.getUrl().toString().startsWith(HOME); // never leave our own page
+                Uri url = request.getUrl();
+                if (url.toString().startsWith(HOME)) return false;
+                // never leave our own page: another Rooftop session (Join) or a link from chat opens in the phone's
+                // browser, which handles its certificate and saving files, while this app keeps hosting
+                if (request.isForMainFrame() && ("https".equals(url.getScheme()) || "http".equals(url.getScheme()))) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, url));
+                    } catch (android.content.ActivityNotFoundException e) {
+                        Toast.makeText(MainActivity.this, "No browser on this phone to open " + url, Toast.LENGTH_LONG).show();
+                    }
+                }
+                return true;
             }
 
             @Override

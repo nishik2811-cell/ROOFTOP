@@ -872,6 +872,9 @@ body.is-host [data-sheet="nearby"] { display: none; } /* the panel already lists
 .host-devices, .host-messages { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .host-devices li { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
 .host-devices .kind { color: var(--accent); font-size: 11px; letter-spacing: 0.1em; }
+.host-devices .join-link { color: var(--accent); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; text-underline-offset: 3px;
+  padding: 12px 14px; margin: -12px -14px; } /* a finger-sized target without moving the row */
+.host-help .name-form { margin-top: 8px; }
 
 .host-messages { max-height: 340px; overflow: auto; }
 .host-messages li {

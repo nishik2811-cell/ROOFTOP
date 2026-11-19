@@ -25,6 +25,7 @@ import rooftop.error.WrongPinException;
 import rooftop.model.Device;
 import rooftop.model.History;
 import rooftop.model.NetworkDevice;
+import rooftop.model.PcPeer;
 import rooftop.model.PhoneClient;
 import rooftop.model.Progress;
 import rooftop.model.ReceivedItem;
@@ -496,6 +497,8 @@ public class WebServer {
             String extra = (d instanceof PhoneClient pc)
                     ? ",\"platform\":" + Texts.json(pc.platform()) + ",\"browser\":" + Texts.json(pc.browser())
                     : ",\"platform\":\"Desktop\",\"browser\":\"Native\"";
+            if (local && d instanceof PcPeer) // the host's own page can join that host's session; beacons are IPv4
+                extra += ",\"join\":" + Texts.json("https://" + d.address().getHostAddress() + ":" + Wire.HTTPS_PORT + "/");
             devices.add("{\"id\":" + Texts.json(d.id()) + ",\"name\":" + Texts.json(d.name()) + ",\"kind\":" + Texts.json(d.kind())
                     + ",\"idle\":" + d.secondsSinceSeen()
                     + ",\"key\":" + Texts.json(d.publicKey()) + extra + "}");

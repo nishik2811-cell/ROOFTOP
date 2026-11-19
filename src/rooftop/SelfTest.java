@@ -360,6 +360,11 @@ public class SelfTest {
                 return super.read(bytes, offset, length);
             }
         };
+        room.devices().put("Other PC", new rooftop.model.PcPeer("Other PC", InetAddress.getByName("192.168.1.50")));
+        check(webRequest(room, "/api/state", java.util.Map.of(), new ByteArrayInputStream(new byte[0]))
+                .contains("\"join\":\"https://192.168.1.50:" + rooftop.net.Wire.HTTPS_PORT + "/\""),
+                "the host's own page gets the join link of another Rooftop it spotted");
+        room.devices().remove("Other PC");
         reply = webRequest(room, "/api/upload", java.util.Map.of("name", "late.txt", "session", room.session()), resetBody);
         check(reply.startsWith("HTTP/1.1 500") && inbox.newestFirst().isEmpty() && room.history().newestFirst().isEmpty(),
                 "HTTP upload crossing reset publishes neither file nor history");

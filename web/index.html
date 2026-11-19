@@ -167,6 +167,14 @@
         <summary>Phone says "not private"?</summary>
         <p>Expected the first time. Android: Advanced, then Proceed. iPhone: Show Details, then visit this website. The link is still encrypted; no company signed this PC's certificate, that is all.</p>
       </details>
+      <details class="host-help">
+        <summary>Join another session</summary>
+        <p>Other PCs and phones running Rooftop on this Wi-Fi show up under Connected with a Join link. Or paste the link from the other screen. It opens in the browser, and this session keeps running.</p>
+        <form class="name-form" id="joinForm">
+          <label class="sr-only" for="joinLink">Link or address of the other session</label>
+          <span class="name-row"><input id="joinLink" autocomplete="off" spellcheck="false" inputmode="url" placeholder="https://192.168.1.5:8443/"><button class="btn" type="submit">Join</button></span>
+        </form>
+      </details>
       <button class="session-btn" type="button" id="newSession">End session, start new</button>
       <p class="session-note" id="sessionNote">New PIN and QR code. Phones are disconnected, and messages and received files are deleted.</p>
     </section>

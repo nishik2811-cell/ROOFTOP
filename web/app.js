@@ -3211,7 +3211,10 @@ function renderHost() {
     const info = sub
       ? el('div', { className: 'dev-info' }, nameSpan, el('span', { className: 'dev-subtext', textContent: sub }))
       : nameSpan;
-    return el('li', {}, avatar(d), info, el('span', { className: 'kind', textContent: d.kind }));
+    const end = d.join // another Rooftop host: join its session (opens in the browser; this one keeps hosting)
+      ? el('a', { className: 'join-link', href: d.join, target: '_blank', rel: 'noopener', textContent: 'Join', title: `Join ${d.name}'s session at ${d.join}` })
+      : el('span', { className: 'kind', textContent: d.kind });
+    return el('li', {}, avatar(d), info, end);
   }));
   $('#hostDevices').hidden = !state.devices.length;
   $('#hostDevicesEmpty').hidden = state.devices.length > 0;
@@ -3839,6 +3842,24 @@ $('#nameForm').addEventListener('submit', async (e) => {
   } catch (err) {
     if (!(err instanceof PinError)) toast('Could not save that name');
   }
+});
+
+/** "172.20.10.2", "172.20.10.2:8443" or a full link from another host's screen -> its address, or null. */
+function joinUrl(text) {
+  const t = text.trim();
+  const bare = !/^[a-z][a-z0-9+.-]*:\/\//i.test(t);
+  try {
+    const u = new URL(bare ? `https://${t}` : t);
+    if (!t || (u.protocol !== 'https:' && u.protocol !== 'http:')) return null;
+    if (bare && !u.port) u.port = '8443';
+    return u.href;
+  } catch { return null; }
+}
+$('#joinForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const url = joinUrl($('#joinLink').value);
+  if (!url) { toast('Paste the link from the other screen, like https://192.168.1.5:8443/'); return; }
+  el('a', { href: url, target: '_blank', rel: 'noopener' }).click(); // a new tab here; in the Android app, the phone's browser
 });
 
 $('#hostNameForm').addEventListener('submit', async (e) => {

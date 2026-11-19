@@ -53,6 +53,7 @@ Phones must be on the same Wi-Fi or hotspot as the computer. Some school, office
 - **Check who you are talking to.** Each pair of devices shows a six-digit safety code; compare it, or scan the other device's QR code, to be sure no one swapped a key.
 - **See the history** of everything sent and received in the session, under Inbox.
 - **Start fresh.** *End session, start new* gives a new PIN and QR code, disconnects everyone and clears the session.
+- **Join another session.** A host's panel lists other Rooftop hosts on the same Wi-Fi with a *Join* link, or you paste another host's link under *Join another session*. It opens in the browser (the Android app hands it to the phone's browser) and your own session keeps running. Two hosts with the same name do not list each other, so paste the link then.
 
 ## How it works
 
