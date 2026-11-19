@@ -29,6 +29,7 @@ const received = [];
 const ctx = vm.createContext({ Blob, crypto, state: { session: 'test' }, myPair: pair,
   E2E: { ...E2E, seal: (...args) => { seals++; return E2E.seal(...args); } },
   RETRIES: 0, PinError: class extends Error {}, Cancelled: class extends Error {},
+  waitWhileStillArriving: async () => false, // none of these failures is the PC's "still receiving the last try"
   postSealed: async (job, piece, uploadKey, offset) => {
     key ??= uploadKey;
     assert.equal(uploadKey, key);
@@ -54,7 +55,7 @@ ctx.state.session = 'new';
 await assert.rejects(ctx.sendSealed(job), /session changed/);
 console.log('ok streaming decryption, tamper rejection, manual resume after lost reply, session isolation');
 // Unsupported disk storage: all concurrent receivers share the fallback budget and release it on failure.
-const fallback = vm.createContext({ Blob, crypto, navigator: {}, window: { addEventListener() {} } });
+const fallback = vm.createContext({ Blob, crypto, randomId: () => crypto.randomUUID(), navigator: {}, window: { addEventListener() {} } });
 vm.runInContext(app.slice(app.indexOf('const MEMORY_RECEIVE_LIMIT ='), app.indexOf('/** Downloads and opens one sealed file without')), fallback);
 const first = await fallback.receiveSink();
 const second = await fallback.receiveSink();
@@ -70,7 +71,7 @@ console.log('ok shared memory fallback budget and failure cleanup');
 let announce;
 const announcement = new Promise((resolve) => { announce = resolve; });
 const queue = vm.createContext({
-  crypto, E2E: {}, myPair: {}, state: { local: false }, jobs: [], jobSeq: 0, batch: 0, PARALLEL: 3,
+  crypto, randomId: () => crypto.randomUUID(), E2E: {}, myPair: {}, state: { local: false }, jobs: [], jobSeq: 0, batch: 0, PARALLEL: 3,
   $: () => ({ value: 'peer' }), recipientsFor: () => ({ list: [{ id: 'peer', name: 'Peer' }], missing: [] }),
   city: { startFlight() {} }, acquireWakeLock() {}, renderTray() {}, toast() {}, finishBatch() {},
   transferNotice: (job, status) => status === 'uploading' ? announcement : Promise.resolve(),

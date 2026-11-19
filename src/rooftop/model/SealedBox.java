@@ -94,7 +94,7 @@ public class SealedBox {
             Entry e = entries.get(check(id));
             if (e == null) entries.put(id, new Entry(new HashSet<>(to), size, System.currentTimeMillis(), new HashSet<>()));
             else if (!e.to().containsAll(to) || e.size() != size) throw new IOException("this upload belongs to another transfer");
-            if (!busy.add(id)) throw new IOException("already arriving on another connection");
+            if (!busy.add(id)) throw new rooftop.error.StillArrivingException();
             p = path(id);
         }
         try {

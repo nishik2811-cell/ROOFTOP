@@ -131,6 +131,9 @@ public class WebServer {
             res.send(400, TEXT, e.getMessage());
         } catch (NoSuchFileException e) {
             res.send(404, TEXT, "no such file");
+        } catch (rooftop.error.StillArrivingException e) { // the sender's last try is still being read: it waits and retries
+            req.body.skip(Math.max(0, req.length));
+            res.header("Retry-After", "2").send(503, TEXT, "still receiving the last try");
         } catch (IOException | RuntimeException e) {
             app.log().add("web error: " + e);
             if (!res.isCommitted()) res.send(500, TEXT, "server error");

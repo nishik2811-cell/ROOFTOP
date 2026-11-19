@@ -372,6 +372,26 @@ public class SelfTest {
                 new ByteArrayInputStream(new byte[]{1}));
         check(reply.startsWith("HTTP/1.1 200") && inbox.fileCount() == 1 && room.history().newestFirst().size() == 1,
                 "new-session HTTP uploads still work");
+        // a piece still being read from a connection that broke on the sender's side: the retry is told to wait (503)
+        var stalled = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        InputStream hanging = new InputStream() {
+            public int read() throws IOException {
+                stalled.countDown();
+                try { release.await(5, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException e) { throw new IOException(e); }
+                throw new IOException("connection reset");
+            }
+        };
+        var piece = java.util.Map.of("name", "slow.bin", "session", room.session(), "key", "slow", "size", "1", "offset", "0");
+        var first = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try { return webRequest(room, "/api/upload", piece, hanging); } catch (Exception e) { return e.toString(); }
+        });
+        stalled.await(5, java.util.concurrent.TimeUnit.SECONDS);
+        reply = webRequest(room, "/api/upload", piece, new ByteArrayInputStream(new byte[]{1}));
+        release.countDown();
+        first.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        check(reply.startsWith("HTTP/1.1 503") && webRequest(room, "/api/upload", piece, new ByteArrayInputStream(new byte[]{1})).startsWith("HTTP/1.1 200"),
+                "a retry while the broken try is still being read is told to wait, then goes through");
         room.newSession();
     }
 

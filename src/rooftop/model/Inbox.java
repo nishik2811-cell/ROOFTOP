@@ -168,7 +168,7 @@ public class Inbox {
         Path p = partial(id);
         synchronized (this) {
             checkGeneration(expected);
-            if (!receiving.add(id)) throw new IOException("this file is already arriving on another connection");
+            if (!receiving.add(id)) throw new rooftop.error.StillArrivingException();
         }
         try {
             long have = Files.exists(p) ? Files.size(p) : 0;

@@ -137,6 +137,9 @@ public class MainActivity extends Activity {
     /** Shows what went wrong on screen, so a screenshot is enough to report it. */
     private void showProblem(String headline) {
         StringBuilder details = new StringBuilder();
+        android.content.pm.PackageInfo webView = WebView.getCurrentWebViewPackage(); // an old one is a common cause
+        details.append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append(", Android ").append(Build.VERSION.RELEASE)
+                .append(", WebView ").append(webView != null ? webView.versionName : "unknown").append('\n');
         if (RooftopService.failure() != null) details.append(RooftopService.failure());
         Rooftop app = RooftopService.app();
         if (app != null) details.append("\nRecent activity:\n").append(app.log().recent());

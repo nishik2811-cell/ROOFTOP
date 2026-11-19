@@ -37,6 +37,9 @@ function rng(seed) {
   };
 }
 
+// crypto.randomUUID needs iOS 15.4 or Chrome 92; this works on older phones too
+const randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+
 const extOf = (name) => { const i = name.lastIndexOf('.'); return i > 0 ? name.slice(i + 1).toLowerCase() : ''; };
 const colorFor = (name) => MURAL_COLORS[hash(name) % MURAL_COLORS.length];
 const isImage = (file) => IMAGE_EXT.has(extOf(file.name)) && file.size <= MAX_MURAL_IMAGE;
@@ -2242,7 +2245,7 @@ async function upload(list) {
   if (missing.length) toast(`Not sent to ${missing.join(', ')}: no key yet, and Rooftop never sends files unencrypted.`, 7000);
   if (!busy()) { batch++; city.startFlight(); acquireWakeLock(); }
   const toName = to === '*' ? 'Everyone' : recipients.map((r) => r.name).join(', ') || state.me;
-  const transferId = crypto.randomUUID();
+  const transferId = randomId();
   const queued = [];
   for (const file of list) {
     jobs.push({ id: ++jobSeq, file, to, toName, recipients, keepHere, sealed: recipients.length > 0,
@@ -2533,6 +2536,18 @@ const PIECE = 4 * 1024 * 1024;
 const RETRIES = 3;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// When a connection breaks on this side mid-piece, the PC keeps reading the dead one until its read timeout (up to a
+// minute) and answers 503 meanwhile. Waiting that out does not use up the retries.
+const STILL_ARRIVING_WAIT_MS = 75000;
+async function waitWhileStillArriving(e, job) {
+  if (!e.stillArriving) return false;
+  if (!job.arrivingSince) job.arrivingSince = Date.now();
+  if (Date.now() - job.arrivingSince > STILL_ARRIVING_WAIT_MS) return false;
+  job.note = 'waiting for the PC to drop the broken connection';
+  await sleep(2000);
+  return true;
+}
+
 async function sendOne(job) {
   const file = job.file;
   const key = `${file.name}|${file.size}|${file.lastModified}`;
@@ -2547,12 +2562,14 @@ async function sendOne(job) {
       res = await sendPiece(job, key, offset, end - offset, body, (loaded) => { job.sent = offset + (body.size ? loaded / body.size : 1) * (end - offset); });
     } catch (e) {
       if (e instanceof PinError || e.fatal || job.cancelled) throw e;
+      if (await waitWhileStillArriving(e, job)) continue;
       if (++failures > RETRIES) throw new Error('connection lost. Try again to continue where it stopped');
       job.note = `retrying (${failures} of ${RETRIES})`;
       await sleep(1000 * failures);
       continue; // same offset; if the PC got more than we think, it answers 409 with the right place
     }
     failures = 0;
+    job.arrivingSince = 0;
     job.note = '';
     if (res.done) return res;
     if (res.status === 409 && res.offset > offset) job.note = 'resumed';
@@ -2575,6 +2592,7 @@ function sendPiece(job, key, offset, rawLength, body, onLoaded) {
       if (x.status === 200) resolve(res);
       else if (x.status === 409) resolve({ offset: res.offset, status: 409 }); // the PC tells us where to carry on
       else if (x.status === 403) { askPin('That PIN did not work.'); reject(new PinError()); }
+      else if (x.status === 503) reject(Object.assign(new Error('the PC is still receiving the last try'), { stillArriving: true }));
       else if (x.status >= 500) reject(new Error('the PC had a problem'));
       else reject(Object.assign(new Error(x.responseText || 'HTTP ' + x.status), { fatal: true }));
     };
@@ -2712,11 +2730,14 @@ async function sendSealed(job) {
         if (res.offset !== at) throw Object.assign(new Error('the PC lost track of this file'), { fatal: true });
         throw new Error('the upload made no progress');
       } catch (e) {
-        if (e instanceof PinError || e.fatal || job.cancelled || ++failures > RETRIES) throw e;
+        if (e instanceof PinError || e.fatal || job.cancelled) throw e;
+        if (await waitWhileStillArriving(e, job)) continue;
+        if (++failures > RETRIES) throw e;
         job.note = `retrying (${failures} of ${RETRIES})`;
         await sleep(1000 * failures);
       }
     }
+    job.arrivingSince = 0;
     upload.offset += piece.size;
     upload.piece = null;
   }
@@ -2735,10 +2756,13 @@ function postSealed(job, piece, key, offset, total, to, onLoaded) {
       try { body = JSON.parse(x.responseText); } catch { /* not JSON */ }
       if (x.status === 200 || x.status === 409) resolve(body);
       else if (x.status === 403) { askPin('That PIN did not work.'); reject(new PinError()); }
+      else if (x.status === 503) reject(Object.assign(new Error('the PC is still receiving the last try'), { stillArriving: true }));
       else reject(Object.assign(new Error(x.responseText || 'HTTP ' + x.status), { fatal: x.status < 500 }));
     };
     x.onabort = () => reject(new Cancelled());
     x.onerror = () => reject(new Error('connection lost'));
+    x.ontimeout = () => reject(new Error('timed out')); // a stalled connection must not hang the file forever
+    x.timeout = 120000;
     x.send(piece); // a Blob: Chrome uploads a Blob ~50x faster than raw bytes (measured on this PC: ~600 vs ~12 MB/s)
   });
 }
@@ -2759,7 +2783,7 @@ function diskReceiveDirectory() {
         if (lock) await root.removeEntry(name, { recursive: true }).catch(() => {});
       });
     }
-    const name = crypto.randomUUID();
+    const name = randomId();
     return new Promise((resolve, reject) => {
       navigator.locks.request('rooftop-receive-' + name, async () => {
         const closed = new Promise((done) => window.addEventListener('pagehide', (e) => { if (!e.persisted) done(); }));
@@ -2774,7 +2798,7 @@ function diskReceiveDirectory() {
 }
 async function receiveSink() {
   let dir, handle, writer;
-  const name = 'rooftop-receive-' + crypto.randomUUID();
+  const name = 'rooftop-receive-' + randomId();
   try {
     dir = await diskReceiveDirectory();
     handle = await dir.getFileHandle(name, { create: true });
