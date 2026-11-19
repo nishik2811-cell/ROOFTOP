@@ -44,13 +44,21 @@ public class MainActivity extends Activity {
     private int watchId;            // so a check scheduled before the problem screen does nothing
     private boolean gaveUp;         // the problem screen is up: no automatic reloads until "Try again"
     private int cityStarts;         // times the city page started loading since it last started for real
+    private int attempts;           // screens opened since the page last started for real (kept across restarts)
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Diag.init(this);
+        // counts screens opened since the page last started for real, across restarts and crashes
+        attempts = getSharedPreferences("diag", MODE_PRIVATE).getInt("attempts", 0) + 1;
+        getSharedPreferences("diag", MODE_PRIVATE).edit().putInt("attempts", attempts).commit();
+        log("screen created" + (state != null ? " again by Android (restored)" : "") + ", attempt " + attempts);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            log("asking for the notification permission");
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 0);
+        }
         startForegroundService(new Intent(this, RooftopService.class));
 
         getWindow().setStatusBarColor(Color.parseColor("#171615"));
@@ -63,11 +71,15 @@ public class MainActivity extends Activity {
         // Android stores it in the background: load the page only once it is in, or the first loads can carry the secret
         // of an earlier run of the app (the server refuses those)
         android.webkit.CookieManager.getInstance().setCookie(HOME, "rooftop-local=" + AndroidPlatform.LOCAL_SECRET + "; HttpOnly; SameSite=Strict",
-                stored -> RooftopService.whenReady(() -> runOnUiThread(() -> {
-                    if (web == null || isDestroyed()) return;
-                    if (RooftopService.failure() != null) showProblem("Rooftop could not start.");
-                    else web.loadUrl(HOME);
-                })));
+                stored -> {
+                    log("page cookie stored: " + stored);
+                    RooftopService.whenReady(() -> runOnUiThread(() -> {
+                        if (web == null || isDestroyed()) return;
+                        log("server ready, loading the page");
+                        if (RooftopService.failure() != null) showProblem("Rooftop could not start.");
+                        else web.loadUrl(HOME);
+                    }));
+                });
 
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -95,11 +107,17 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                log("page started: " + url);
                 if (isCity(url)) cityStarts++;
                 if (!isCity(url) || watching || gaveUp) return;
                 watching = true; // one deadline from the first try, however often it reloads meanwhile
                 int id = ++watchId;
                 view.postDelayed(() -> checkStarted(id), START_TIMEOUT_MS);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                log("page finished: " + url);
             }
 
             @Override
@@ -168,7 +186,10 @@ public class MainActivity extends Activity {
             answered[0] = true;
             if (id != watchId || gaveUp || web == null || isDestroyed() || !isCity(web.getUrl())) return;
             if ("\"true\"".equals(started)) { // started: later failures get their own retries
-                if (cityStarts > 1) reportReloads(cityStarts);
+                log("page started for real (screens opened " + attempts + ", page loads " + cityStarts + ")");
+                if (attempts > 1 || cityStarts > 1) showReport(attempts, cityStarts);
+                attempts = 0;
+                getSharedPreferences("diag", MODE_PRIVATE).edit().putInt("attempts", 0).apply();
                 retries = 0;
                 cityStarts = 0;
             } else showProblem("The page did not finish starting.");
@@ -179,11 +200,18 @@ public class MainActivity extends Activity {
     }
 
     /** The page opened, but only after loading more than once: say why once, so a screenshot shows it (it is in the log). */
-    private void reportReloads(int loads) {
+    private void showReport(int screens, int loads) {
+        String report = "Rooftop needed " + screens + " screen(s) and " + loads + " page load(s) to open.\n\n" + problemDetails()
+                + "\n\nAndroid's log for this app:\n" + Diag.systemLog(12000);
         new android.app.AlertDialog.Builder(this)
-                .setTitle("Rooftop needed " + loads + " tries to open")
-                .setMessage("It works now. Take a screenshot of this and send it over, so the cause can be fixed.\n\n" + problemDetails())
-                .setPositiveButton("OK", null)
+                .setTitle("Rooftop had trouble opening")
+                .setMessage("It works now. Tap Share and send the log over, so the cause can be fixed.")
+                .setPositiveButton("Share", (d, w) -> {
+                    Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(Intent.EXTRA_SUBJECT, "Rooftop startup log").putExtra(Intent.EXTRA_TEXT, report);
+                    startActivity(Intent.createChooser(send, "Send the Rooftop log"));
+                })
+                .setNegativeButton("Close", null)
                 .show();
     }
 
@@ -237,10 +265,12 @@ public class MainActivity extends Activity {
         if (RooftopService.failure() != null) details.append(RooftopService.failure());
         Rooftop app = RooftopService.app();
         if (app != null) details.append("\nRecent activity:\n").append(app.log().recent());
+        details.append("\nStartup log (kept across restarts):\n").append(Diag.recent(6000));
         return details.toString();
     }
 
     private static void log(String line) {
+        Diag.add(line); // survives restarts and crashes
         Rooftop app = RooftopService.app();
         if (app != null) app.log().add(line);
     }
@@ -327,7 +357,34 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        // a screen Android destroys to rebuild it says which setting changed (a mask of ActivityInfo.CONFIG_* values)
+        log("screen destroyed" + (isFinishing() ? " (closed)" : "") + (isChangingConfigurations()
+                ? " to rebuild it, changes 0x" + Integer.toHexString(getChangingConfigurations()) : ""));
         if (web != null) web.destroy();
         super.onDestroy();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        log("screen shown");
+    }
+
+    @Override
+    protected void onPause() {
+        log("screen paused");
+        super.onPause();
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration config) {
+        super.onConfigurationChanged(config);
+        log("setting changed without a rebuild: " + config);
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        log("Android asks to free memory, level " + level);
     }
 }

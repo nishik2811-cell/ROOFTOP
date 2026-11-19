@@ -52,6 +52,8 @@ public class RooftopService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        Diag.init(this);
+        Diag.add("sharing service created" + (app != null ? " (Rooftop already running)" : ""));
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Sharing", NotificationManager.IMPORTANCE_LOW));
         startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
@@ -69,9 +71,11 @@ public class RooftopService extends Service {
             try {
                 Rooftop rooftop = new Rooftop(new AndroidPlatform(this));
                 rooftop.start();
+                Diag.add("sharing server started");
                 started(rooftop, null);
             } catch (Throwable e) { // Errors too: anything here must reach the screen, not vanish
                 Log.e("Rooftop", "could not start", e);
+                Diag.add("sharing server could not start: " + e);
                 started(null, Log.getStackTraceString(e));
             }
         }, "rooftop-start").start();
@@ -79,6 +83,8 @@ public class RooftopService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        Diag.add("sharing service started" + (intent == null ? " again by Android after the app was closed" : "")
+                + (intent != null && STOP.equals(intent.getAction()) ? ": Stop tapped" : ""));
         if (intent != null && STOP.equals(intent.getAction())) {
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
@@ -90,8 +96,20 @@ public class RooftopService extends Service {
 
     @Override
     public void onDestroy() {
+        Diag.add("sharing service stopped");
         if (multicast != null && multicast.isHeld()) multicast.release();
         super.onDestroy();
+    }
+
+    /**
+     * Android 15 lets a data-sync foreground service run 6 hours a day. When that runs out it calls this, and an app
+     * that does not stop its service within seconds is crashed. Stop cleanly; opening the app starts it again.
+     */
+    @Override
+    public void onTimeout(int startId, int fgsType) {
+        Diag.add("Android's 6-hour limit for background sharing ran out: sharing stops until the app is opened again");
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        stopSelf();
     }
 
     @Override
