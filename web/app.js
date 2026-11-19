@@ -218,6 +218,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   };
   const horizon = corners[0][1] - 60;
   const W = view.x1 - view.x0, H = view.y1 - view.y0;
+  const K_MAX = Math.sqrt(10e6 / (W * H)); // the world canvas stays under 10 megapixels
 
   // outline of a box on screen: back top, right top, right bottom, front bottom, left bottom, left top
   const silhouette = (b) => [iso(b.x0, b.h, b.z0), iso(b.x1, b.h, b.z0), iso(b.x1, 0, b.z0), iso(b.x1, 0, b.z1), iso(b.x0, 0, b.z1), iso(b.x0, b.h, b.z1)];
@@ -309,11 +310,12 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   let murals = [];          // [{ file, poly, center, kind }], billboards first, then walls, newest first
   let selected = -1;
   let hovered = -1;
-  const images = new Map();
+  const images = new Map(); // file name -> poster-sized photo, null while it loads
+  const dirty = new Set();  // walls and boards waiting to be repainted
   const world = document.createElement('canvas');
   let fit = 1, dpr = 1, cssW = 0, cssH = 0, k = 1;
   const cam = { x: 0, y: 0, z: 1, vx: 0, vy: 0 };
-  let placed = false, tween = null, flight = null, splash = null, renderTimer = 0, lastFrame = 0;
+  let placed = false, tween = null, flight = null, splash = null, lastFrame = 0;
 
   /* ---- drawing helpers ---- */
   function poly(c, pts, fill) {
@@ -653,9 +655,9 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     f.beginPath(); f.rect(3, 3, w - 6, h - 6); f.clip();
     f.fillStyle = colorFor(file.name);
     f.fillRect(0, 0, w, h);
-    if (img && img.naturalWidth) {
-      const s = Math.max(w / img.naturalWidth, h / img.naturalHeight);
-      f.drawImage(img, (w - img.naturalWidth * s) / 2, (h - img.naturalHeight * s) * 0.3, img.naturalWidth * s, img.naturalHeight * s);
+    if (img) {
+      const s = Math.max(w / img.width, h / img.height);
+      f.drawImage(img, (w - img.width * s) / 2, (h - img.height * s) * 0.3, img.width * s, img.height * s);
     } else {
       for (let i = 0; i < 14; i++) {
         f.globalAlpha = 0.3 + r() * 0.4;
@@ -678,10 +680,10 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     const color = colorFor(file.name);
     f.fillStyle = '#fbf3e6';
     f.fillRect(0, 0, w, h);
-    if (img && img.naturalWidth) {
-      const s = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+    if (img) {
+      const s = Math.max(w / img.width, h / img.height);
       f.save(); f.beginPath(); f.rect(4, 4, w - 8, h - 8); f.clip();
-      f.drawImage(img, (w - img.naturalWidth * s) / 2, (h - img.naturalHeight * s) / 2, img.naturalWidth * s, img.naturalHeight * s);
+      f.drawImage(img, (w - img.width * s) / 2, (h - img.height * s) / 2, img.width * s, img.height * s);
       f.restore();
       if (file.forYou) forYouTag(f, w, h, file);
       return;
@@ -730,12 +732,26 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     f.fillText('GOES UP HERE', w / 2, h * 0.72);
   }
 
-  function render() {
+  // The whole world, or with `place` only the box around that board or wall (everything in it, in the same order).
+  function render(place) {
     if (!cssW) return;
     const p = PALETTES[currentEnv] || (night ? PALETTES.night : PALETTES.day);
-    world.width = Math.ceil(W * k);
-    world.height = Math.ceil(H * k);
+    if (!place) {
+      world.width = Math.ceil(W * k);
+      world.height = Math.ceil(H * k);
+      dirty.clear();
+    }
     const c = world.getContext('2d');
+    c.save(); // every repaint starts from the canvas's default state, like a fresh one
+    if (place) {
+      // A wall's file also changes its building's random roof (ink, water tank), so a wall takes the whole building.
+      const pts = place.b ? place.poly : place.sil, above = place.b ? 4 : 2 * U;
+      const xs = pts.map(([x]) => (x - view.x0) * k), ys = pts.map(([, y]) => (y - view.y0) * k);
+      const x0 = Math.floor(Math.min(...xs) - 4 * k), y0 = Math.floor(Math.min(...ys) - above * k); // whole pixels: no seams
+      const w = Math.ceil(Math.max(...xs) + 4 * k) - x0, h = Math.ceil(Math.max(...ys) + 4 * k) - y0;
+      c.beginPath(); c.rect(x0, y0, w, h); c.clip();
+      c.clearRect(x0, y0, w, h);
+    }
     c.setTransform(k, 0, 0, k, -view.x0 * k, -view.y0 * k);
     drawBackdrop(c, p);
     if (p.lit) for (const l of lamps) {
@@ -747,6 +763,14 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       c.fillStyle = glow; c.beginPath(); c.arc(0, 0, 22, 0, Math.PI * 2); c.fill(); c.restore();
     }
     for (const d of drawables) (d.kind === 'building' ? drawBuilding : d.kind === 'lamp' ? drawLamp : drawTree)(c, d.item, p);
+    c.restore();
+    requestDraw();
+  }
+
+  // Walls and boards are repainted one per frame (see frame). Rasterizing the whole world takes a phone a big part of
+  // a second; one spot with everything in front of it, a few milliseconds.
+  function repaint(places) {
+    for (const place of places) dirty.add(place);
     requestDraw();
   }
 
@@ -769,9 +793,48 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     c.restore();
   }
 
-  function scheduleRender() {
-    clearTimeout(renderTimer);
-    renderTimer = setTimeout(render, 120);
+  /* ---- photos: decoded and shrunk to poster size in a worker, one at a time ---- */
+  // Drawn straight from an <img>, every repaint decoded and scaled each full-size photo on the page's own thread, and
+  // thirty phone photos froze the page for seconds. The world is never sharper than K_MAX, so a photo whose shorter
+  // side is POSTER still covers the biggest wall or board.
+  const POSTER = Math.ceil(Math.max(...walls.map((b) => Math.max(b.h, b.z1 - b.z0)), ...boards.map((bd) => bd.x1 - bd.x0)) * U * K_MAX);
+  function shrinkWorker() { // runs in the worker, from its source text
+    let queue = Promise.resolve();
+    self.onmessage = ({ data: { name, blob, side } }) => {
+      queue = queue.then(async () => {
+        let bitmap = null;
+        try {
+          const full = await createImageBitmap(blob);
+          const s = side / Math.min(full.width, full.height);
+          bitmap = s >= 1 ? full : await createImageBitmap(full, { resizeWidth: Math.round(full.width * s), resizeHeight: Math.round(full.height * s), resizeQuality: 'high' });
+          if (bitmap !== full) full.close();
+        } catch { /* the page falls back to an <img> */ }
+        self.postMessage({ name, bitmap }, bitmap ? [bitmap] : []);
+      });
+    };
+  }
+  let shrinker = null;
+  try {
+    shrinker = new Worker(URL.createObjectURL(new Blob([`(${shrinkWorker})()`], { type: 'text/javascript' })));
+    shrinker.onmessage = ({ data: { name, bitmap } }) => (bitmap ? showPhoto(name, bitmap) : loadImage(name));
+    shrinker.onerror = () => { shrinker = null; for (const [name, img] of images) if (!img) loadImage(name); };
+  } catch { /* no workers here */ }
+
+  function showPhoto(name, img) {
+    if (!images.has(name)) return img.close?.(); // removed while it loaded
+    images.set(name, img);
+    repaint([...assigned].filter(([, f]) => f.name === name).map(([place]) => place));
+  }
+  function loadImage(name) { // the old way, on the page's thread, where the worker cannot do it
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => showPhoto(name, img);
+    img.src = imageUrl(name);
+  }
+  function loadPhoto(name) {
+    images.set(name, null); // a plain poster until the photo is ready
+    if (!shrinker) return loadImage(name);
+    fetch(imageUrl(name)).then((r) => r.blob()).then((blob) => shrinker.postMessage({ name, blob, side: POSTER })).catch(() => loadImage(name));
   }
 
   /* ---- files: newest on the billboards, the rest on walls (a file keeps its wall) ---- */
@@ -789,6 +852,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     files = next;
     // Files keep their spot between updates, so removing one never shuffles the rest.
     // A new file takes a free billboard, or bumps an older billboard file onto a wall, or gets a wall.
+    const before = assigned;
     const was = new Map([...assigned].map(([place, f]) => [f.name, place]));
     assigned = new Map();
     const fresh = [];
@@ -813,17 +877,11 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       const polyPts = place.poly && place.b ? place.poly : endFace(place);
       return { file: f, poly: polyPts, center: centerOf(polyPts), kind: place.b ? 'billboard' : 'wall' };
     });
-    for (const f of files) {
-      if (isImage(f) && !images.has(f.name)) {
-        const img = new Image();
-        img.decoding = 'async';
-        img.onload = scheduleRender;
-        img.src = imageUrl(f.name);
-        images.set(f.name, img);
-      }
-    }
+    for (const [name, img] of images) if (!files.some((f) => f.name === name)) { img?.close?.(); images.delete(name); }
+    for (const f of files) if (isImage(f) && !images.has(f.name)) loadPhoto(f.name);
     if (selected >= murals.length) selected = murals.length - 1;
-    render();
+    const look = (f) => f && [f.name, f.from, f.to, f.forYou, f.recipientView].join('|'); // what a wall or board shows
+    repaint([...new Set([...before.keys(), ...assigned.keys()])].filter((place) => look(before.get(place)) !== look(assigned.get(place))));
   }
 
   /* ---- camera: drag with momentum, wheel and pinch zoom, fly to a file ---- */
@@ -867,7 +925,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     tween = null;
     fit = Math.max(cssW / W, cssH / H) * (cssW < 768 ? 1.25 : 1.12);
     cam.z = placed ? cam.z * (fit / oldFit) : fit;
-    k = Math.min(dpr * fit * 2.4, Math.sqrt(10e6 / (W * H))); // the cache is sharp enough for zooming in
+    k = Math.min(dpr * fit * 2.4, K_MAX); // the cache is sharp enough for zooming in
     if (!placed) {
       flyTo([(view.x0 + view.x1) / 2, (view.y0 + view.y1) / 2 + 40], fit, false);
       placed = true;
@@ -900,6 +958,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     }
     const dt = Math.min(64, now - (lastFrame || now));
     lastFrame = now;
+    if (dirty.size) { const [place] = dirty; dirty.delete(place); render(place); }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
