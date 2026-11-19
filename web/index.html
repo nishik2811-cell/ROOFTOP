@@ -153,6 +153,7 @@
   <footer class="credits"><span class="credits-tag">AllDrop for all your devices · end-to-end encrypted</span> · Made by <b>Nishita</b>, <b>Aryan</b> and <b>Keshav</b></footer>
 
   <aside class="host" id="host" aria-label="This PC" hidden>
+   <div class="host-stick">
     <section class="host-card connect-card">
       <h2>Scan to connect</h2>
       <div class="qr-wrap" id="hostQrWrap" title="Click to enlarge QR code"><canvas id="hostQr" width="480" height="480" aria-label="QR code that opens Rooftop on a phone"></canvas></div>
@@ -167,8 +168,8 @@
         <summary>Phone says "not private"?</summary>
         <p>Expected the first time. Android: Advanced, then Proceed. iPhone: Show Details, then visit this website. The link is still encrypted; no company signed this PC's certificate, that is all.</p>
       </details>
-      <details class="host-help">
-        <summary>Join another session</summary>
+      <details class="join-box">
+        <summary class="session-btn">Join another session</summary>
         <p>Other PCs and phones running Rooftop on this Wi-Fi show up under Connected with a Join link. Or paste the link from the other screen. It opens in the browser, and this session keeps running.</p>
         <form class="name-form" id="joinForm">
           <label class="sr-only" for="joinLink">Link or address of the other session</label>
@@ -184,7 +185,7 @@
       <ul class="host-devices" id="hostDevices"></ul>
       <p class="empty" id="hostDevicesEmpty">Nobody yet. Phones show up here once they open the link.</p>
     </section>
-
+   </div>
   </aside>
 
   <section class="host-more" id="hostMore" aria-label="This PC: chat, keys and notifications" hidden>
