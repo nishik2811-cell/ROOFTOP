@@ -37,10 +37,12 @@ public class MainActivity extends Activity {
     private static final int MAX_RETRIES = 15;
     private static final int START_TIMEOUT_MS = 12_000;
 
-    private WebView web;
+    private WebView web;            // null once the page's process is gone
     private ValueCallback<Uri[]> pendingPick;
-    private int retries;
-    private int loads; // counts page loads, so a check meant for an earlier load does nothing
+    private int retries;            // failed loads since the page last started (a failed load still "finishes")
+    private boolean watching;       // a start check is scheduled
+    private int watchId;            // so a check scheduled before the problem screen does nothing
+    private boolean gaveUp;         // the problem screen is up: no automatic reloads until "Try again"
 
     @Override
     protected void onCreate(Bundle state) {
@@ -69,6 +71,7 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
                 if (url.toString().startsWith(HOME)) return false;
+                if ("rooftop".equals(url.getScheme())) { tryAgain(); return true; } // the problem screen's button
                 // never leave our own page: another Rooftop session (Join) or a link from chat opens in the phone's
                 // browser, which handles its certificate and saving files, while this app keeps hosting
                 if (request.isForMainFrame() && ("https".equals(url.getScheme()) || "http".equals(url.getScheme()))) {
@@ -82,26 +85,52 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (!url.startsWith(HOME) || watching || gaveUp) return;
+                watching = true; // one deadline from the first try, however often it reloads meanwhile
+                int id = ++watchId;
+                view.postDelayed(() -> checkStarted(id), START_TIMEOUT_MS);
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (!request.isForMainFrame()) return;
-                if (retries++ < MAX_RETRIES) view.postDelayed(() -> view.loadUrl(HOME), 600); // server still starting
+                log("page load failed: " + error.getErrorCode() + " " + error.getDescription() + " (" + request.getUrl() + ")");
+                if (gaveUp) return;
+                if (retries++ < MAX_RETRIES) view.postDelayed(() -> { if (!gaveUp && web != null) web.loadUrl(HOME); }, 600); // server still starting
                 else showProblem("The sharing server is not answering (" + error.getDescription() + ").");
             }
 
             @Override
-            public void onPageFinished(WebView view, String url) {
-                if (!url.startsWith(HOME)) return;
-                retries = 0;
-                int load = ++loads;
-                view.postDelayed(() -> checkStarted(load), START_TIMEOUT_MS);
+            public void onReceivedHttpError(WebView view, WebResourceRequest request, android.webkit.WebResourceResponse response) {
+                if (request.isForMainFrame()) log("page load answered " + response.getStatusCode() + " " + response.getReasonPhrase() + " (" + request.getUrl() + ")");
+            }
+
+            @Override
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                // the page's process crashed, or Android stopped it to free memory; unhandled, the whole app is killed silently
+                String why = detail.didCrash() ? "The page crashed." : "Android closed the page to free memory.";
+                log("page process gone: " + why);
+                web = null;
+                view.destroy();
+                android.widget.TextView text = new android.widget.TextView(MainActivity.this);
+                text.setTextIsSelectable(true);
+                text.setTypeface(android.graphics.Typeface.MONOSPACE);
+                text.setTextColor(Color.parseColor("#f2eee6"));
+                text.setPadding(48, 48, 48, 48);
+                text.setText(why + "\nTake a screenshot of this and send it over. Close and reopen Rooftop to try again.\n\n" + problemDetails());
+                android.widget.ScrollView scroll = new android.widget.ScrollView(MainActivity.this);
+                scroll.setBackgroundColor(Color.parseColor("#171615"));
+                scroll.addView(text);
+                setContentView(scroll);
+                return true;
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onConsoleMessage(ConsoleMessage m) { // page errors go into the log the problem screen shows
-                Rooftop app = RooftopService.app();
-                if (app != null && m.messageLevel() == ConsoleMessage.MessageLevel.ERROR)
-                    app.log().add("page error: " + m.message() + " (" + m.sourceId() + ":" + m.lineNumber() + ")");
+                if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR)
+                    log("page error: " + m.message() + " (" + m.sourceId() + ":" + m.lineNumber() + ")");
                 return false;
             }
 
@@ -124,32 +153,64 @@ public class MainActivity extends Activity {
     }
 
     /** The page flags itself started within seconds; if it has not, show why instead of a loading crosshair forever. */
-    private void checkStarted(int load) {
-        if (load != loads || isDestroyed()) return; // reloaded since, or the screen is gone
+    private void checkStarted(int id) {
+        if (id != watchId || gaveUp || web == null || isDestroyed()) return;
+        watching = false;
         boolean[] answered = {false};
-        web.evaluateJavascript("String(!document.getElementById('loader') || window.rooftopStarted === true)", started -> {
+        web.evaluateJavascript("String(window.rooftopStarted === true)", started -> {
             answered[0] = true;
-            if (load == loads && !isDestroyed() && !"\"true\"".equals(started)) showProblem("The page did not finish starting.");
+            if (id != watchId || gaveUp || web == null || isDestroyed()) return;
+            if ("\"true\"".equals(started)) retries = 0; // started: later failures get their own retries
+            else showProblem("The page did not finish starting.");
         });
-        web.postDelayed(() -> { if (!answered[0] && load == loads && !isDestroyed()) showProblem("The page stopped responding while starting."); }, 3000);
+        web.postDelayed(() -> {
+            if (!answered[0] && id == watchId && !gaveUp && web != null && !isDestroyed()) showProblem("The page stopped responding while starting.");
+        }, 3000);
+    }
+
+    private void tryAgain() {
+        if (web == null) return;
+        gaveUp = false;
+        retries = 0;
+        web.loadUrl(HOME); // loaded by the app, so the page's cookie goes along
     }
 
     /** Shows what went wrong on screen, so a screenshot is enough to report it. */
     private void showProblem(String headline) {
+        gaveUp = true;
+        watching = false;
+        watchId++;
+        if (web == null) return; // the page's process is gone, and that screen already says so
+        String html = "<body style='background:#171615;color:#f2eee6;font:14px monospace;padding:20px'>"
+                + "<h3 style='color:#3fd6e0'>" + escape(headline) + "</h3>"
+                + "<p>Take a screenshot of this and send it over.</p>"
+                + "<pre style='white-space:pre-wrap;font-size:11px;color:#bab4a9'>" + escape(problemDetails()) + "</pre>"
+                + "<p><a style='color:#3fd6e0' href='rooftop:retry'>Try again</a></p></body>";
+        web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
+    }
+
+    /** Which build, phone and WebView, why Rooftop could not start, and its recent activity (page errors included). */
+    private String problemDetails() {
         StringBuilder details = new StringBuilder();
+        String build;
+        try {
+            build = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException e) {
+            build = "?";
+        }
         android.content.pm.PackageInfo webView = WebView.getCurrentWebViewPackage(); // an old one is a common cause
-        details.append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append(", Android ").append(Build.VERSION.RELEASE)
+        details.append("Rooftop ").append(build).append(" on ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
+                .append(", Android ").append(Build.VERSION.RELEASE)
                 .append(", WebView ").append(webView != null ? webView.versionName : "unknown").append('\n');
         if (RooftopService.failure() != null) details.append(RooftopService.failure());
         Rooftop app = RooftopService.app();
         if (app != null) details.append("\nRecent activity:\n").append(app.log().recent());
-        String html = "<body style='background:#171615;color:#f2eee6;font:14px monospace;padding:20px'>"
-                + "<h3 style='color:#3fd6e0'>" + escape(headline) + "</h3>"
-                + "<p>Take a screenshot of this and send it over.</p>"
-                + "<pre style='white-space:pre-wrap;font-size:11px;color:#bab4a9'>" + escape(details.toString()) + "</pre>"
-                + "<p><a style='color:#3fd6e0' href='" + HOME + "'>Try again</a></p></body>";
-        retries = 0;
-        web.loadDataWithBaseURL(HOME, html, "text/html", "utf-8", null);
+        return details.toString();
+    }
+
+    private static void log(String line) {
+        Rooftop app = RooftopService.app();
+        if (app != null) app.log().add(line);
     }
 
     private static String escape(String s) {
@@ -228,7 +289,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        web.destroy();
+        if (web != null) web.destroy();
         super.onDestroy();
     }
 }

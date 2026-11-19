@@ -28,7 +28,8 @@ Copy-Item "web\index.html", "web\style.css", "web\app.js", "web\e2e.js", "web\di
 
 Write-Host "1/5 resources"
 & "$BT\aapt2.exe" compile --dir android/res -o "$OUT\res.zip"
-& "$BT\aapt2.exe" link -o "$OUT\base.apk" -I $PLATFORM --manifest android/AndroidManifest.xml --java "$OUT\gen" -A "$OUT\assets" "$OUT\res.zip"
+# the build time as the version name, so the problem screen tells which build a phone runs
+& "$BT\aapt2.exe" link -o "$OUT\base.apk" -I $PLATFORM --manifest android/AndroidManifest.xml --version-name (Get-Date -Format "yyyy-MM-dd.HHmm") --replace-version --java "$OUT\gen" -A "$OUT\assets" "$OUT\res.zip"
 
 Write-Host "2/5 compile (shared Rooftop code + Android screens)"
 $SHARED = Get-ChildItem -Recurse -Filter *.java src\rooftop | Where-Object {

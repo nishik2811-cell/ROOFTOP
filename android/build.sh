@@ -20,7 +20,9 @@ cp web/index.html web/style.css web/app.js web/e2e.js web/display.woff2 "$OUT/as
 
 echo "1/5 resources"
 "$BT/aapt2" compile --dir android/res -o "$OUT/res.zip"
+# the build time as the version name, so the problem screen tells which build a phone runs
 "$BT/aapt2" link -o "$OUT/base.apk" -I "$PLATFORM" --manifest android/AndroidManifest.xml \
+    --version-name "$(date +%Y-%m-%d.%H%M)" --replace-version \
     --java "$OUT/gen" -A "$OUT/assets" "$OUT/res.zip"
 
 echo "2/5 compile (shared Rooftop code + Android screens)"

@@ -136,7 +136,8 @@ public class WebServer {
             res.header("Retry-After", "2").send(503, TEXT, "still receiving the last try");
         } catch (IOException | RuntimeException e) {
             app.log().add("web error: " + e);
-            if (!res.isCommitted()) res.send(500, TEXT, "server error");
+            // the type (not the message, which may hold paths) lets the sender's "Failed:" line say what broke
+            if (!res.isCommitted()) res.send(500, TEXT, "server error (" + e.getClass().getSimpleName() + ")");
         }
     }
 
@@ -379,7 +380,10 @@ public class WebServer {
             res.send(400, TEXT, recipientOk ? "bad size or offset" : "that device cannot receive encrypted files right now");
             return;
         }
-        if (offset == 0 && size > java.nio.file.Files.getFileStore(app.sealed().dir()).getUsableSpace() - (512L << 20)) {
+        // File.getUsableSpace, not Files.getFileStore: the latter needs the mount table, which an Android app may not see
+        // (it then throws, and every first piece failed); 0 means "could not tell", so do not refuse on it
+        long free = app.sealed().dir().toFile().getUsableSpace();
+        if (offset == 0 && free > 0 && size > free - (512L << 20)) {
             req.body.skip(req.length); // keep half a GB free: a device with the PIN must not be able to fill this disk
             res.send(507, TEXT, "not enough free space on the host");
             return;

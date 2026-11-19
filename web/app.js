@@ -208,6 +208,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   // street trees at an even rhythm along every avenue, and a ring around the plaza
   for (const [a] of AVENUES) for (let z = -24; z < 72; z += 2.5) {
     if (!onLand(a, z, 0.5)) continue;
+    if (ROADS_Z.some((rz) => Math.abs(z - rz) < ST / 2 + 0.5)) continue; // not on a crossing street (crown included)
     trees.push({ x: a + 0.25, z, s: 0.62, seed: Math.floor(z * 31 + a) });
   }
   for (let x = PLAZA.x0 + 1; x < PLAZA.x1; x += 2) {
@@ -2593,7 +2594,7 @@ function sendPiece(job, key, offset, rawLength, body, onLoaded) {
       else if (x.status === 409) resolve({ offset: res.offset, status: 409 }); // the PC tells us where to carry on
       else if (x.status === 403) { askPin('That PIN did not work.'); reject(new PinError()); }
       else if (x.status === 503) reject(Object.assign(new Error('the PC is still receiving the last try'), { stillArriving: true }));
-      else if (x.status >= 500) reject(new Error('the PC had a problem'));
+      else if (x.status >= 500) reject(new Error(x.responseText || 'the PC had a problem'));
       else reject(Object.assign(new Error(x.responseText || 'HTTP ' + x.status), { fatal: true }));
     };
     x.onabort = () => reject(new Cancelled());
