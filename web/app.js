@@ -2918,6 +2918,17 @@ function ackLocal(f) {
 // iPhone and iPad: a download link to a file held in the page is unreliable in Safari, but the share sheet has
 // "Save to Files" and "Save Image". Other phones and computers download normally.
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Inside the Android app there are no tabs: "Open in tab" would replace the city with the bare file, zoomed in and
+// with no way back. There it shows the whole file in the preview window instead.
+const openTabButton = $('#storyOpenTab');
+if (openTabButton && / RooftopApp$/.test(navigator.userAgent)) {
+  openTabButton.textContent = 'View full';
+  openTabButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    const m = city.murals()[selected];
+    if (m) showFilePreview(m.file);
+  });
+}
 function shareSaves(fs) {
   if (!IOS || !navigator.canShare) return false;
   const files = fs.map((f) => new File([f.blob], f.name, { type: f.blob.type || 'application/octet-stream' }));

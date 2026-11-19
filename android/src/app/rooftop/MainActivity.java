@@ -65,6 +65,7 @@ public class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(false);
+        settings.setUserAgentString(settings.getUserAgentString() + " RooftopApp"); // lets the page leave out "Open in tab"
 
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -86,7 +87,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                if (!url.startsWith(HOME) || watching || gaveUp) return;
+                if (!isCity(url) || watching || gaveUp) return;
                 watching = true; // one deadline from the first try, however often it reloads meanwhile
                 int id = ++watchId;
                 view.postDelayed(() -> checkStarted(id), START_TIMEOUT_MS);
@@ -156,16 +157,22 @@ public class MainActivity extends Activity {
     private void checkStarted(int id) {
         if (id != watchId || gaveUp || web == null || isDestroyed()) return;
         watching = false;
+        if (!isCity(web.getUrl())) return; // e.g. a file opened on its own: scripts are blocked there, nothing to check
         boolean[] answered = {false};
         web.evaluateJavascript("String(window.rooftopStarted === true)", started -> {
             answered[0] = true;
-            if (id != watchId || gaveUp || web == null || isDestroyed()) return;
+            if (id != watchId || gaveUp || web == null || isDestroyed() || !isCity(web.getUrl())) return;
             if ("\"true\"".equals(started)) retries = 0; // started: later failures get their own retries
             else showProblem("The page did not finish starting.");
         });
         web.postDelayed(() -> {
             if (!answered[0] && id == watchId && !gaveUp && web != null && !isDestroyed()) showProblem("The page stopped responding while starting.");
         }, 3000);
+    }
+
+    /** The city page itself, not a file or other address on the same server. */
+    private static boolean isCity(String url) {
+        return url != null && (url.equals(HOME) || url.startsWith(HOME + "?") || url.startsWith(HOME + "#"));
     }
 
     private void tryAgain() {
@@ -270,6 +277,12 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        String url = web != null ? web.getUrl() : null;
+        if (url != null && url.startsWith(HOME) && !isCity(url)) { // on a file of our own server: back to the city
+            if (web.canGoBack()) web.goBack();
+            else web.loadUrl(HOME);
+            return;
+        }
         if (web != null) {
             web.evaluateJavascript("(() => {"
                     + "const s = document.querySelector('dialog.sheet[open]');"
