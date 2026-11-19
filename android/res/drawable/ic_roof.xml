@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A tin roof with a paper sheet hopping over it -->
+<!-- A paper plane (a file) flying over two roofs, on the dusk sky (see ic_launcher). Drawn on a 128 grid, scaled into
+     the adaptive icon's 66dp safe circle so no launcher mask cuts it. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#DDD8E3" android:strokeColor="#F2EEE6" android:strokeWidth="2"
-        android:pathData="M30,60 L54,44 L78,60 L78,74 L30,74 Z" />
-    <path android:strokeColor="#171615" android:strokeWidth="2"
-        android:pathData="M38,56 L38,74 M46,51 L46,74 M54,46 L54,74 M62,51 L62,74 M70,56 L70,74" />
-    <path android:fillColor="#3FD6E0" android:pathData="M60,30 L72,30 L72,42 L60,42 Z" />
+    <group android:scaleX="0.6" android:scaleY="0.6" android:translateX="15.6" android:translateY="15.6">
+        <path android:fillColor="#E8509F" android:pathData="M22,100 L22,86 L40,74 L58,86 L58,100 Z" />
+        <path android:fillColor="#F2B632" android:pathData="M54,100 L54,90 L74,76 L94,90 L94,100 Z" />
+        <path android:fillColor="#F4EDE6"
+            android:pathData="M30,71 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 M35.5,64 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 M41.5,59.5 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0" />
+        <path android:fillColor="#F4EDE6" android:pathData="M46,56 L96,32 L68,70 L63,58 Z" />
+        <path android:strokeColor="#2E1D2C" android:strokeWidth="2" android:strokeLineCap="round"
+            android:pathData="M63,58 L96,32" />
+    </group>
 </vector>
