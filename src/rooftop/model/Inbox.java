@@ -79,9 +79,10 @@ public class Inbox {
                     continue;
                 }
                 if (!Files.isRegularFile(p) || name.startsWith(".")) continue; // hidden files stay private
-                items.add(new ReceivedItem(p.getFileName().toString(), Files.size(p), "earlier", "", ThisDevice.ID,
-                        Files.getLastModifiedTime(p).toMillis()));
-                takenNames.add(p.getFileName().toString());
+                // a restart is a new session: earlier files stay in the folder but are not listed (or deleted by End session);
+                // their names stay taken so a new file never overwrites one
+                // ponytail: on Android they stay in app storage until the app is uninstalled; prune them if space matters
+                takenNames.add(name);
             }
         }
     }

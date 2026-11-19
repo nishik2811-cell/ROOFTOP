@@ -78,7 +78,7 @@ flowchart LR
 
 ## Good to know
 
-- After a host restart, existing inbox files are visible only to the host. Send them again to share them with other devices.
+- A host restart starts a new session with an empty city. Files from before stay in the inbox folder on disk; send them again to share them.
 - Two people with the same name are told apart by a short tag, like *Asha · 2b74*. Someone who closed Rooftop is marked *inactive*, and a chat with someone who left says so instead of sending into nowhere.
 - Keep the receiving page open while files are being saved. Phones can pause pages that are in the background.
 - Files received in a phone's browser are kept in that page until you save them; reloading the page fetches them again from the host, while the host still has them.

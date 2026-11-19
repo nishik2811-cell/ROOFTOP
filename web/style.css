@@ -943,9 +943,9 @@ body.is-host [data-sheet="nearby"] { display: none; } /* the panel already lists
   display: grid;
   place-items: center;
   background: var(--paper);
-  transition: opacity 0.9s var(--ease), visibility 0s linear 0.9s;
+  transition: opacity 0.9s var(--ease); /* shown again (entering the city): visible at once, then fades in */
 }
-.loader.done { opacity: 0; visibility: hidden; }
+.loader.done { opacity: 0; visibility: hidden; transition: opacity 0.9s var(--ease), visibility 0s linear 0.9s; }
 .crosshair {
   position: relative;
   width: 64px;

@@ -28,8 +28,8 @@ import rooftop.util.Streams;
  * arrived (for the one-hour limit). Once every recipient has acknowledged, the bytes and that record are deleted.
  *
  * <p>Files addressed to this PC (directly or via Everyone) are held like a message app holds a message until you
- * open it: they sit in a hidden folder next to the inbox, survive restarts and session ends, and are never deleted
- * until this PC's own page has decrypted and acknowledged them. Only other devices' claims expire.
+ * open it: they sit in a hidden folder next to the inbox and are not deleted after an hour, only once this PC's own page
+ * has decrypted and acknowledged them, or when the session ends (End session, or a restart).
  */
 public class SealedBox {
     public static final long KEEP_MS = 60 * 60 * 1000; // uncollected sealed files are deleted after an hour
@@ -64,8 +64,8 @@ public class SealedBox {
             if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix"))
                 Files.setPosixFilePermissions(d, PosixFilePermissions.fromString("rwx------")); // only this user
         }
-        wipeFolder(); // other devices' files do not survive a restart: their metadata is gone, nobody could collect them
-        loadHeld();   // files for this PC do
+        wipeFolder(dir);  // a restart is a new session: nothing sealed survives it
+        wipeFolder(held);
     }
 
     public Path dir() {
@@ -159,10 +159,10 @@ public class SealedBox {
         expire(System.currentTimeMillis() - KEEP_MS);
     }
 
-    /** Session over: phones are gone, so their claims go. Files still waiting for this PC stay. */
+    /** Session over: every sealed file goes, including ones still waiting for this PC. Uploads in flight go when they stop (see append). */
     public synchronized void clear() throws IOException {
         generation++;
-        expire(Long.MAX_VALUE);
+        for (String id : new ArrayList<>(entries.keySet())) if (!busy.contains(id)) forget(id);
     }
 
     private void expire(long arrivedBefore) throws IOException {
@@ -182,28 +182,9 @@ public class SealedBox {
         return entries.size();
     }
 
-    /** After a restart: files that were waiting for this PC come back; half-uploaded ones are dropped. */
-    private void loadHeld() throws IOException {
-        try (Stream<Path> files = Files.list(held)) {
-            for (Path p : (Iterable<Path>) files::iterator) {
-                String name = p.getFileName().toString();
-                if (name.endsWith(".meta")) continue;
-                Path meta = held.resolve(name + ".meta");
-                if (!name.matches("[0-9a-f]{32}") || !Files.exists(meta)) {
-                    Files.deleteIfExists(p);
-                    continue;
-                }
-                String[] f = new String(Files.readAllBytes(meta), java.nio.charset.StandardCharsets.US_ASCII).split("\n");
-                Set<String> to = new HashSet<>(Set.of(hostId));
-                entries.put(name, new Entry(to, Long.parseLong(f[0].trim()), Long.parseLong(f[1].trim()), new HashSet<>()));
-            }
-        }
-    }
-
-    private void wipeFolder() throws IOException {
-        try (Stream<Path> files = Files.list(dir)) {
-            for (Path p : (Iterable<Path>) files::iterator)
-                if (!busy.contains(p.getFileName().toString())) Files.deleteIfExists(p);
+    private static void wipeFolder(Path folder) throws IOException {
+        try (Stream<Path> files = Files.list(folder)) {
+            for (Path p : (Iterable<Path>) files::iterator) Files.deleteIfExists(p);
         }
     }
 }

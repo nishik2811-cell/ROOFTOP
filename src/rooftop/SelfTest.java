@@ -149,18 +149,19 @@ public class SelfTest {
         try (var list = Files.list(sealedDir)) { leftovers = list.map(p -> p.getFileName().toString()).toArray(String[]::new); }
         check(stillThere && gone && collectRefused && leftovers.length == 0, "nothing about the transfer is left after the last acknowledgement");
 
-        // a file for this PC (here sent to Everyone: the PC and C) is held until the PC's page opens it
+        // a file for this PC (here sent to Everyone: the PC and C) waits for the PC's page, but not past the session
         String forPc = "ffeeddccbbaa99887766554433221100";
         box.append(forPc, java.util.Set.of("host", "web C"), blob.length, 0, new ByteArrayInputStream(blob), blob.length);
+        boolean waiting = box.waitingFor("host").size() == 1;
         box.clear(); // End session
-        boolean afterSession = box.waitingFor("host").size() == 1 && box.waitingFor("web C").isEmpty();
-        rooftop.model.SealedBox restarted = new rooftop.model.SealedBox(sealedDir, heldDir, "host"); // Rooftop restarts
-        boolean afterRestart = restarted.waitingFor("host").size() == 1 && Arrays.equals(Files.readAllBytes(restarted.collect(forPc, "host")), blob);
-        restarted.acknowledge(forPc, "host");
         String[] heldLeft;
         try (var list = Files.list(heldDir)) { heldLeft = list.map(p -> p.getFileName().toString()).toArray(String[]::new); }
-        check(afterSession && afterRestart && heldLeft.length == 0 && restarted.count() == 0,
-                "a file for the PC survives End session and a restart, and goes only once the PC's page acknowledges it");
+        boolean afterSession = box.waitingFor("host").isEmpty() && heldLeft.length == 0 && box.count() == 0;
+        box.append(forPc, java.util.Set.of("host"), blob.length, 0, new ByteArrayInputStream(blob), blob.length);
+        rooftop.model.SealedBox restarted = new rooftop.model.SealedBox(sealedDir, heldDir, "host"); // Rooftop restarts
+        try (var list = Files.list(heldDir)) { heldLeft = list.map(p -> p.getFileName().toString()).toArray(String[]::new); }
+        check(waiting && afterSession && restarted.waitingFor("host").isEmpty() && heldLeft.length == 0,
+                "a file waiting for the PC is deleted by End session and by a restart");
 
         // chat: the PC relays sealed messages it cannot read, padded, and forgets every one of them at session end
         Path chatHome = Files.createTempDirectory("rooftop-chat-test");
@@ -303,8 +304,9 @@ public class SelfTest {
         Inbox inbox = room.inbox();
         inbox.store("private.txt", new ByteArrayInputStream(new byte[]{1}), 1, "sender", "sender-id", "host", new Progress(1));
         Inbox reopened = new Inbox(inbox.dir());
-        check(reopened.newestFirst().get(0).visibleTo("host") && !reopened.newestFirst().get(0).visibleTo("stranger"),
-                "files loaded after restart are host-only");
+        var next = reopened.store("private.txt", new ByteArrayInputStream(new byte[]{2}), 1, "sender", "sender-id", "host", new Progress(1));
+        check(reopened.newestFirst().size() == 1 && !next.name().equals("private.txt") && Files.exists(inbox.dir().resolve("private.txt")),
+                "a restart starts with an empty inbox, keeps earlier files on disk and never overwrites them");
         String id = "0123456789abcdef0123456789abcdef";
         room.sealed().append(id, java.util.Set.of("phone"), 1, 0, new ByteArrayInputStream(new byte[]{1}), 1);
         boolean sameProcessRefused = false;

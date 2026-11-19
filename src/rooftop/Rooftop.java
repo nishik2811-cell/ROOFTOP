@@ -66,7 +66,7 @@ public class Rooftop {
             if (java.nio.file.Files.isRegularFile(nameFile())) // a name picked earlier on this PC
                 me.rename(new String(java.nio.file.Files.readAllBytes(nameFile()), java.nio.charset.StandardCharsets.UTF_8));
             // end-to-end encrypted files passing through: a hidden temp folder for other devices, and a hidden folder
-            // next to the inbox for files waiting for this PC (kept until this PC's page opens them). Neither is the inbox.
+            // next to the inbox for files waiting for this PC (kept until this PC's page opens them, or the session ends). Neither is the inbox.
             this.sealed = new SealedBox(java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"), "rooftop-sealed-" + System.getProperty("user.name", "app")),
                     inbox.dir().resolve(".rooftop").resolve("held"), ThisDevice.ID);
         } catch (IOException | RuntimeException | Error e) {

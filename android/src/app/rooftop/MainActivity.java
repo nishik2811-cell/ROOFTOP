@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.view.WindowManager;
+import android.webkit.ConsoleMessage;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -34,10 +35,12 @@ public class MainActivity extends Activity {
     private static final int PICK_FILES = 1;
 
     private static final int MAX_RETRIES = 15;
+    private static final int START_TIMEOUT_MS = 12_000;
 
     private WebView web;
     private ValueCallback<Uri[]> pendingPick;
     private int retries;
+    private int loads; // counts page loads, so a check meant for an earlier load does nothing
 
     @Override
     protected void onCreate(Bundle state) {
@@ -76,10 +79,21 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                if (url.startsWith(HOME)) retries = 0;
+                if (!url.startsWith(HOME)) return;
+                retries = 0;
+                int load = ++loads;
+                view.postDelayed(() -> checkStarted(load), START_TIMEOUT_MS);
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage m) { // page errors go into the log the problem screen shows
+                Rooftop app = RooftopService.app();
+                if (app != null && m.messageLevel() == ConsoleMessage.MessageLevel.ERROR)
+                    app.log().add("page error: " + m.message() + " (" + m.sourceId() + ":" + m.lineNumber() + ")");
+                return false;
+            }
+
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (pendingPick != null) pendingPick.onReceiveValue(null);
@@ -96,6 +110,17 @@ public class MainActivity extends Activity {
             if (RooftopService.failure() != null) showProblem("Rooftop could not start.");
             else web.loadUrl(HOME);
         }));
+    }
+
+    /** The page flags itself started within seconds; if it has not, show why instead of a loading crosshair forever. */
+    private void checkStarted(int load) {
+        if (load != loads) return; // reloaded since
+        boolean[] answered = {false};
+        web.evaluateJavascript("String(!document.getElementById('loader') || window.rooftopStarted === true)", started -> {
+            answered[0] = true;
+            if (load == loads && !"\"true\"".equals(started)) showProblem("The page did not finish starting.");
+        });
+        web.postDelayed(() -> { if (!answered[0] && load == loads) showProblem("The page stopped responding while starting."); }, 3000);
     }
 
     /** Shows what went wrong on screen, so a screenshot is enough to report it. */

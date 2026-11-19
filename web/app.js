@@ -1561,6 +1561,7 @@ async function refresh() {
       } else {
         const keepIndex = murals.findIndex((m) => m.file.name === keep);
         selected = keepIndex >= 0 ? keepIndex : (murals.length ? 0 : -1);
+        if (keepIndex < 0 && !$('#story').hidden) closeStory(false); // its file is gone: session ended, or removed elsewhere
         updateNav();
       }
     }
@@ -4074,7 +4075,7 @@ const initialMode = savedCycle || (legacyTheme === 'dark' ? 'night' : legacyThem
 applyCycle(initialMode);
 
 /* ---- start ---- */
-setTimeout(() => $('#loader')?.classList.add('done'), reduceMotion ? 0 : 1300);
+setTimeout(() => { $('#loader')?.classList.add('done'); window.rooftopStarted = true; }, reduceMotion ? 0 : 1300); // the Android app checks this flag
 
 // The opening, on every load: full-screen aerial view, then a frame, then a pill window between big words.
 function runIntro() {
