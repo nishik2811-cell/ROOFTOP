@@ -34,7 +34,7 @@ public class MainActivity extends Activity {
     private static final String HOME = "http://127.0.0.1:8080/";
     private static final int PICK_FILES = 1;
 
-    private static final int MAX_RETRIES = 15;
+    private static final int MAX_RETRIES = 4; // the server is up before the first load (whenReady), so a few is plenty
     private static final int START_TIMEOUT_MS = 12_000;
 
     private WebView web;            // null once the page's process is gone
@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(Color.parseColor("#171615"));
         getWindow().setNavigationBarColor(Color.parseColor("#171615"));
         web = new WebView(this);
-        web.setBackgroundColor(Color.parseColor("#d4cbbe"));
+        web.setBackgroundColor(pageColor()); // whenever the page is not drawn yet, no bright flash
         setContentView(web);
 
         // proves to the server that requests come from this page, not another app on the phone (see Platform.localSecret)
@@ -185,6 +185,14 @@ public class MainActivity extends Activity {
                 .setMessage("It works now. Take a screenshot of this and send it over, so the cause can be fixed.\n\n" + problemDetails())
                 .setPositiveButton("OK", null)
                 .show();
+    }
+
+    /** The page's own background for the time of day (the same hours as getCycleEnv in app.js). */
+    private static int pageColor() {
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        double h = now.get(java.util.Calendar.HOUR_OF_DAY) + now.get(java.util.Calendar.MINUTE) / 60.0;
+        String color = h >= 5 && h < 10 ? "#ecd5c7" : h >= 10 && h < 17 ? "#ead3bf" : h >= 17 && h < 20.5 ? "#2e1d2c" : "#22201d";
+        return Color.parseColor(color);
     }
 
     /** The city page itself, not a file or other address on the same server. */

@@ -1111,7 +1111,9 @@ body.intro-on { overflow: hidden; }
   .intro-title { flex-direction: column; gap: 17vh; top: 46.5vh; font-size: 17vw; }
   /* the big ROOFTOP letters straddle the bottom edge of the city frame, as on a PC: top half over the city. At the very
      bottom they were half off screen, and below the frame the same colour as the page, so they barely showed */
-  .intro-mark { bottom: calc(26vh - 10vw); overflow: visible; }
+  /* measured like the frame's bottom edge (the city is 100dvh tall, clipped 26vh from its bottom), and centred on it:
+     the letter box is 0.82 x 27vw = 22vw tall. From the screen bottom instead, they slid under the frame on a phone */
+  .intro-mark { top: calc(100vh - 26vh - 11vw); top: calc(100dvh - 26vh - 11vw); bottom: auto; overflow: visible; }
   .intro-mark span { transform: translateY(45vh); } /* they start below the screen and rise up into place, as on a PC */
   .intro-corner { display: none; }
   .intro-enter { top: 62vh; }
