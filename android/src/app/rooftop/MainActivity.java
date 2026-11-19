@@ -43,6 +43,7 @@ public class MainActivity extends Activity {
     private boolean watching;       // a start check is scheduled
     private int watchId;            // so a check scheduled before the problem screen does nothing
     private boolean gaveUp;         // the problem screen is up: no automatic reloads until "Try again"
+    private int cityStarts;         // times the city page started loading since it last started for real
 
     @Override
     protected void onCreate(Bundle state) {
@@ -59,7 +60,14 @@ public class MainActivity extends Activity {
         setContentView(web);
 
         // proves to the server that requests come from this page, not another app on the phone (see Platform.localSecret)
-        android.webkit.CookieManager.getInstance().setCookie(HOME, "rooftop-local=" + AndroidPlatform.LOCAL_SECRET + "; HttpOnly; SameSite=Strict");
+        // Android stores it in the background: load the page only once it is in, or the first loads can carry the secret
+        // of an earlier run of the app (the server refuses those)
+        android.webkit.CookieManager.getInstance().setCookie(HOME, "rooftop-local=" + AndroidPlatform.LOCAL_SECRET + "; HttpOnly; SameSite=Strict",
+                stored -> RooftopService.whenReady(() -> runOnUiThread(() -> {
+                    if (web == null || isDestroyed()) return;
+                    if (RooftopService.failure() != null) showProblem("Rooftop could not start.");
+                    else web.loadUrl(HOME);
+                })));
 
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -87,6 +95,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (isCity(url)) cityStarts++;
                 if (!isCity(url) || watching || gaveUp) return;
                 watching = true; // one deadline from the first try, however often it reloads meanwhile
                 int id = ++watchId;
@@ -147,10 +156,6 @@ public class MainActivity extends Activity {
         });
         web.setDownloadListener((url, userAgent, disposition, mime, length) -> saveToDownloads(Uri.parse(url)));
 
-        RooftopService.whenReady(() -> runOnUiThread(() -> {
-            if (RooftopService.failure() != null) showProblem("Rooftop could not start.");
-            else web.loadUrl(HOME);
-        }));
     }
 
     /** The page flags itself started within seconds; if it has not, show why instead of a loading crosshair forever. */
@@ -162,12 +167,24 @@ public class MainActivity extends Activity {
         web.evaluateJavascript("String(window.rooftopStarted === true)", started -> {
             answered[0] = true;
             if (id != watchId || gaveUp || web == null || isDestroyed() || !isCity(web.getUrl())) return;
-            if ("\"true\"".equals(started)) retries = 0; // started: later failures get their own retries
-            else showProblem("The page did not finish starting.");
+            if ("\"true\"".equals(started)) { // started: later failures get their own retries
+                if (cityStarts > 1) reportReloads(cityStarts);
+                retries = 0;
+                cityStarts = 0;
+            } else showProblem("The page did not finish starting.");
         });
         web.postDelayed(() -> {
             if (!answered[0] && id == watchId && !gaveUp && web != null && !isDestroyed()) showProblem("The page stopped responding while starting.");
         }, 3000);
+    }
+
+    /** The page opened, but only after loading more than once: say why once, so a screenshot shows it (it is in the log). */
+    private void reportReloads(int loads) {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Rooftop needed " + loads + " tries to open")
+                .setMessage("It works now. Take a screenshot of this and send it over, so the cause can be fixed.\n\n" + problemDetails())
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     /** The city page itself, not a file or other address on the same server. */

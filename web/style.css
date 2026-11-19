@@ -778,6 +778,8 @@ body.is-host [data-sheet="nearby"] { display: none; } /* the panel already lists
 }
 
 .connect-card { box-shadow: 5px 5px 0 var(--pink), 10px 10px 0 var(--accent); }
+/* full width on a phone: leave room for the 10px offset shadow, so card and shadow sit centred */
+@media (max-width: 600px) { .connect-card { margin-right: 10px; } }
 
 .host-card h2 {
   margin: 0;
