@@ -1960,8 +1960,9 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
   .intro-extra { display: none; }
   body.intro-on.intro-s3 .stage { clip-path: inset(30.5vh 8vw calc(100% - 43.5vh) 8vw round 999px); clip-path: inset(30.5svh 8vw calc(100% - 43.5svh) 8vw round 999px); }
   .intro.s3 .intro-window { top: 30.5vh; top: 30.5svh; height: 13vh; height: 13svh; }
-  .intro-title { top: 37vh; top: 37svh; gap: 17vh; gap: 17svh; }
-  .intro-enter { top: calc(45.5vh + 15vw + 8px); top: calc(45.5svh + 15vw + 8px); }
+  /* the words sit 4.5svh off the city window (13svh tall, centred on 37svh), the slider 4.5svh under ROOFTOP (15vw) */
+  .intro-title { top: 37vh; top: 37svh; gap: 22vh; gap: 22svh; }
+  .intro-enter { top: calc(52.5vh + 15vw); top: calc(52.5svh + 15vw); }
   .intro-line { bottom: calc(10vh + env(safe-area-inset-bottom, 0px)); bottom: calc(10svh + env(safe-area-inset-bottom, 0px)); }
   .intro-credits { bottom: calc(4vh + env(safe-area-inset-bottom, 0px)); bottom: calc(4svh + env(safe-area-inset-bottom, 0px)); }
 }
