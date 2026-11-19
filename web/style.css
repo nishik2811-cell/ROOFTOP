@@ -770,6 +770,7 @@ body.is-host [data-sheet="nearby"] { display: none; } /* the panel already lists
 
 .host-card {
   display: grid;
+  grid-template-columns: minmax(0, 1fr); /* the card's width wins: a wide row (bigger phone text) shrinks, never spills out */
   gap: 12px;
   padding: 18px 18px 20px;
   border-radius: 18px;
@@ -831,6 +832,7 @@ body.is-host [data-sheet="nearby"] { display: none; } /* the panel already lists
   font-size: 12px;
   letter-spacing: 0.1em;
   display: flex;
+  flex-wrap: wrap; /* very narrow screen, big text: the copy button drops below instead of spilling out */
   align-items: center;
   gap: 6px;
 }
@@ -1369,6 +1371,7 @@ body.intro-on { overflow: hidden; }
     transform: translateY(calc(100% + 120px));
   }
   .story-art { height: 22vh; }
+  .story.open ~ .incoming-status { visibility: hidden; } /* it would sit on the panel's arrows; back once it closes */
 }
 
 .intro-credits {
@@ -1683,7 +1686,7 @@ body.intro-on .tray { visibility: hidden; }
 }
 
 /* ---------- names, notifications ---------- */
-.name-form { display: grid; gap: 6px; }
+.name-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; } /* the field shrinks to fit, never spills */
 .name-form label { color: var(--chalk-dim); font: 11px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
 .name-row { display: flex; gap: 8px; }
 .name-form input {
