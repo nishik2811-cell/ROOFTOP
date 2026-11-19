@@ -1607,6 +1607,7 @@ async function refresh() {
       const keep = city.murals()[selected]?.file.name;
       city.setFiles(next.files);
       const murals = city.murals();
+      if (keep && !$('#story').hidden && !murals.some((m) => m.file.name === keep)) closeStory(false); // its file is gone: session ended, or removed elsewhere
       if (fresh.length > 0) {
         unreadIncomingCount += fresh.length;
         updateIncomingBadge();
@@ -1620,7 +1621,6 @@ async function refresh() {
       } else {
         const keepIndex = murals.findIndex((m) => m.file.name === keep);
         selected = keepIndex >= 0 ? keepIndex : (murals.length ? 0 : -1);
-        if (keepIndex < 0 && !$('#story').hidden) closeStory(false); // its file is gone: session ended, or removed elsewhere
         updateNav();
       }
     }

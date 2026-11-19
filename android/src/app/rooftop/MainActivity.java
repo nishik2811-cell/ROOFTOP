@@ -125,13 +125,13 @@ public class MainActivity extends Activity {
 
     /** The page flags itself started within seconds; if it has not, show why instead of a loading crosshair forever. */
     private void checkStarted(int load) {
-        if (load != loads) return; // reloaded since
+        if (load != loads || isDestroyed()) return; // reloaded since, or the screen is gone
         boolean[] answered = {false};
         web.evaluateJavascript("String(!document.getElementById('loader') || window.rooftopStarted === true)", started -> {
             answered[0] = true;
-            if (load == loads && !"\"true\"".equals(started)) showProblem("The page did not finish starting.");
+            if (load == loads && !isDestroyed() && !"\"true\"".equals(started)) showProblem("The page did not finish starting.");
         });
-        web.postDelayed(() -> { if (!answered[0] && load == loads) showProblem("The page stopped responding while starting."); }, 3000);
+        web.postDelayed(() -> { if (!answered[0] && load == loads && !isDestroyed()) showProblem("The page stopped responding while starting."); }, 3000);
     }
 
     /** Shows what went wrong on screen, so a screenshot is enough to report it. */

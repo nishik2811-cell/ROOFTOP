@@ -759,7 +759,8 @@ body.is-host .frame {
   align-items: start;
 }
 body.is-host .stage { max-height: calc(100dvh - 72px - 52px); }
-body.is-host .frame { row-gap: 0; }
+/* the city's row keeps its height; when the side column grows (a section opened), only the cards' row grows */
+body.is-host .frame { row-gap: 0; grid-template-rows: auto 1fr auto; }
 body.is-host .frame > .stage, body.is-host .frame > .credits { grid-column: 1; }
 body.is-host .host { grid-column: 2; grid-row: 1 / span 2; }
 body.is-host [data-sheet="nearby"] { display: none; } /* the panel already lists devices */
@@ -1919,7 +1920,7 @@ dialog.sheet-chat { width: min(860px, 100vw); }
 body.is-host .host { grid-row: 1 / span 2; align-self: stretch; } /* full height, so .host-stick can travel down it */
 .host-more { display: none; }
 body.is-host .host-more {
-  grid-column: 1; grid-row: 2;
+  grid-column: 1; grid-row: 2; align-self: start; /* cards keep their height when that row grows */
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px;
   align-items: stretch;
   margin-top: 22px;
@@ -1931,9 +1932,10 @@ body.is-host .host-more .notify-btn { justify-self: center; }
 body.is-host .frame > .credits { grid-column: 1 / -1; grid-row: 3; padding-top: 30px; }
 body.is-host .host-more[hidden] { display: none !important; }
 @media (max-width: 1100px) {
+  body.is-host .frame { grid-template-rows: none; }
   body.is-host .host { grid-row: auto; }
   body.is-host .host-more { grid-row: auto; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; } /* equal heights on desktop only */
-  body.is-host .frame > .credits { grid-row: auto; }
+  body.is-host .frame > .credits { grid-row: auto; order: 1; } /* last, after the panels, as on desktop */
 }
 
 /* Keep card content together; long device lists scroll within their own card. */

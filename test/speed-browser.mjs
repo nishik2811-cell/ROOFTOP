@@ -39,7 +39,7 @@ for (let run = 1; run <= RUNS; run++) {
     $('#sendTo').value = state.meId;
     window.__t0 = performance.now();
     upload([new File([bytes], name)]);
-    while (jobs.some((j) => j.state === 'waiting' || j.state === 'sending')) await new Promise((r) => setTimeout(r, 20));
+    while (busy()) await new Promise((r) => setTimeout(r, 20)); // announcing, waiting or sending
     if (!jobs.some((j) => j.file.name === name && j.state === 'sent')) throw new Error('send failed: ' + JSON.stringify(jobs.map((j) => [j.state, j.note])));
     window.__t0wall = Date.now() - (performance.now() - window.__t0);
     return (performance.now() - window.__t0) / 1000;
