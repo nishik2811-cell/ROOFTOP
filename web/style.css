@@ -1109,6 +1109,10 @@ body.intro-on { overflow: hidden; }
   .intro.s2 .intro-window { top: 6vh; left: 5vw; width: 90vw; height: 68vh; }
   .intro.s3 .intro-window { top: 40vh; left: 8vw; width: 84vw; height: 13vh; }
   .intro-title { flex-direction: column; gap: 17vh; top: 46.5vh; font-size: 17vw; }
+  /* the big ROOFTOP letters straddle the bottom edge of the city frame, as on a PC: top half over the city. At the very
+     bottom they were half off screen, and below the frame the same colour as the page, so they barely showed */
+  .intro-mark { bottom: calc(26vh - 10vw); overflow: visible; }
+  .intro-mark span { transform: translateY(45vh); } /* they start below the screen and rise up into place, as on a PC */
   .intro-corner { display: none; }
   .intro-enter { top: 62vh; }
   .intro-line { bottom: 5vh; padding: 0 20px; }

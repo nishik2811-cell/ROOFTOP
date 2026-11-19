@@ -897,13 +897,13 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     cam.y = Math.min(Math.max(cam.y, view.y0), view.y1 - visH());
   }
 
-  function flyTo([x, y], zoom = cam.z, animate = true, dur = 1100) {
+  function flyTo([x, y], zoom = cam.z, animate = true, dur = 1100, steady = false) {
     const z = Math.min(Math.max(zoom, fit), fit * 2.4);
     const to = { x: x - cssW / z / 2, y: y - cssH / z * 0.48, z };
     to.x = Math.min(Math.max(to.x, view.x0), view.x1 - cssW / z);
     to.y = Math.min(Math.max(to.y, view.y0), view.y1 - cssH / z);
     if (!animate || reduceMotion) { Object.assign(cam, to); tween = null; }
-    else tween = { from: { x: cam.x, y: cam.y, z: cam.z }, to, start: performance.now(), dur };
+    else tween = { from: { x: cam.x, y: cam.y, z: cam.z }, to, start: performance.now(), dur, steady };
     requestDraw();
   }
 
@@ -950,7 +950,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     if (!cssW || document.hidden) return;
     if (tween) {
       const t = Math.min(1, (now - tween.start) / tween.dur);
-      const e = 1 - Math.pow(1 - t, 4); // ease-out: starts moving at once, settles softly
+      const e = tween.steady ? t : 1 - Math.pow(1 - t, 4); // ease-out: starts moving at once, settles softly
       cam.x = tween.from.x + (tween.to.x - tween.from.x) * e;
       cam.y = tween.from.y + (tween.to.y - tween.from.y) * e;
       cam.z = tween.from.z + (tween.to.z - tween.from.z) * e;
@@ -1456,7 +1456,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
     // the opening: a slow aerial glide across the city
     tour() {
       flyTo([view.x0 + W * 0.3, view.y0 + H * 0.42], fit * 1.4, false);
-      flyTo([view.x0 + W * 0.66, view.y0 + H * 0.58], fit * 1.4, true, 16000);
+      flyTo([view.x0 + W * 0.66, view.y0 + H * 0.58], fit * 1.4, true, 16000, true); // steady, so it still drifts in the small window
     },
     // entering: dive in over the plaza, then pull back to the whole city
     arrive() {
@@ -1545,9 +1545,14 @@ function removeButton(name) {
 
 const pinLayer = $('#removeLayer');
 const pinButtons = new Map(); // file name -> button over the city
+// Runs every frame, so it must not read layout (clientWidth) there: that forces a full layout of the page each frame,
+// which made the opening lag on phones. The size comes from a ResizeObserver instead.
+let pinW = 0, pinH = 0;
+new ResizeObserver(([e]) => { pinW = e.contentRect.width; pinH = e.contentRect.height; }).observe(pinLayer);
 function placeRemoveButtons(points) {
   const murals = city.murals();
-  const w = pinLayer.clientWidth, h = pinLayer.clientHeight;
+  if (!pinButtons.size && !murals.some((m) => m.file.removable)) return; // nothing to place or take away
+  const w = pinW, h = pinH;
   const seen = new Set();
   murals.forEach((m, i) => {
     if (!m.file.removable) return;
@@ -4193,6 +4198,19 @@ applyCycle(initialMode);
 /* ---- start ---- */
 setTimeout(() => { $('#loader')?.classList.add('done'); window.rooftopStarted = true; }, reduceMotion ? 0 : 1300); // the Android app checks this flag
 
+/** Calls fn once three frames in a row come quickly (the page is no longer busy), or after 1.5 s at the latest. */
+function whenFramesSettle(fn) {
+  const end = performance.now() + 1500;
+  let last = 0, calm = 0;
+  const tick = (t) => {
+    calm = last && t - last < 40 ? calm + 1 : 0;
+    last = t;
+    if (calm >= 3 || t > end) fn();
+    else requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 // The opening, on every load: full-screen aerial view, then a frame, then a pill window between big words.
 function runIntro() {
   if (reduceMotion || session.get('rooftop-entered') === '1') {
@@ -4205,13 +4223,22 @@ function runIntro() {
   const intro = $('#intro');
   document.body.classList.add('intro-on');
   intro.hidden = false;
-  setTimeout(() => city.tour(), 250); // after the full-screen resize has settled
-  setTimeout(() => intro.classList.add('s1'), 120);
-  const t2 = setTimeout(() => { intro.classList.add('s2'); document.body.classList.add('intro-s2'); }, 2400);
-  const t3 = setTimeout(() => { intro.classList.add('s3'); document.body.classList.add('intro-s3'); }, 4000);
+  let t1 = 0, t2 = 0, t3 = 0, entered = false;
+  // The first frames are heavy (the city is drawn and handed to the graphics chip): start the words and the glide once
+  // they are past, or the opening stutters on a phone. The loader covers the wait; at most 1.5 s.
+  whenFramesSettle(() => {
+    if (entered) return;
+    $('#loader').classList.add('done'); // the city is drawn: show it now, so the opening is not played behind the loader
+    city.tour();
+    // the big ROOFTOP letters rise as the loader fades, where they can be seen (behind it, they seemed never to move)
+    t1 = setTimeout(() => intro.classList.add('s1'), 350);
+    t2 = setTimeout(() => { intro.classList.add('s2'); document.body.classList.add('intro-s2'); }, 2630);
+    t3 = setTimeout(() => { intro.classList.add('s3'); document.body.classList.add('intro-s3'); }, 4230);
+  });
   slideToEnter(() => {
+    entered = true;
     session.set('rooftop-entered', '1');
-    clearTimeout(t2); clearTimeout(t3);
+    clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
     intro.classList.add('leaving');
     $('#loader').classList.remove('done');
     setTimeout(() => {
