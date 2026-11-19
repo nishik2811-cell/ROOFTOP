@@ -33,7 +33,21 @@ final class Diag {
             add("CRASH in " + thread.getName() + ": " + android.util.Log.getStackTraceString(e));
             if (previous != null) previous.uncaughtException(thread, e);
         });
+        String last = lastLine();
+        if (!last.isEmpty() && !last.matches(".*(paused|destroyed|stopped|Stop tapped|CRASH).*"))
+            add("the previous run ended abruptly, while the screen was up (a native crash, or Android closed the app); its last step: "
+                    + last.replaceFirst("^\\S+ ", ""));
         add("process started");
+    }
+
+    private static String lastLine() {
+        try {
+            if (!file.exists()) return "";
+            String all = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).trim();
+            return all.substring(all.lastIndexOf('\n') + 1);
+        } catch (IOException e) {
+            return "";
+        }
     }
 
     static synchronized void add(String event) {
@@ -61,13 +75,21 @@ final class Diag {
         }
     }
 
-    /** This app's own recent lines from Android's log (an app may read its own): the browser engine's errors, crashes. */
+    /**
+     * This app's own lines from Android's log (an app may read its own), only the ones that matter: crashes (native ones
+     * too, which never reach Java), the browser engine's errors, graphics and memory trouble. Window chatter is skipped,
+     * or it pushes the crash out of view.
+     */
     static String systemLog(int maxChars) {
         StringBuilder out = new StringBuilder();
+        java.util.regex.Pattern keep = java.util.regex.Pattern.compile(
+                "^\\d\\d-\\d\\d [\\d:.]+ [EF]/|Fatal|SIGSEGV|SIGABRT|signal \\d|tombstone|backtrace|AndroidRuntime|DEBUG|libc|chromium|cr_|"
+                        + "GPU|gpu|Adreno|OpenGL|GL_|EGL|Vulkan|memory|Memory|OOM|lowmemory|onTrimMemory|ANR|Rooftop",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
         try {
-            Process logcat = new ProcessBuilder("logcat", "-d", "-t", "400", "-v", "time").redirectErrorStream(true).start();
+            Process logcat = new ProcessBuilder("logcat", "-d", "-t", "5000", "-v", "time").redirectErrorStream(true).start();
             try (BufferedReader in = new BufferedReader(new InputStreamReader(logcat.getInputStream(), StandardCharsets.UTF_8))) {
-                for (String line; (line = in.readLine()) != null; ) out.append(line).append('\n');
+                for (String line; (line = in.readLine()) != null; ) if (keep.matcher(line).find()) out.append(line).append('\n');
             }
         } catch (IOException e) {
             out.append("(could not read Android's log: ").append(e.getMessage()).append(")\n");

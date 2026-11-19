@@ -92,7 +92,11 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri url = request.getUrl();
                 if (url.toString().startsWith(HOME)) return false;
-                if ("rooftop".equals(url.getScheme())) { tryAgain(); return true; } // the problem screen's button
+                if ("rooftop".equals(url.getScheme())) { // the problem screen's buttons
+                    if ("share".equals(url.getSchemeSpecificPart())) shareLog(problemDetails());
+                    else tryAgain();
+                    return true;
+                }
                 // never leave our own page: another Rooftop session (Join) or a link from chat opens in the phone's
                 // browser, which handles its certificate and saving files, while this app keeps hosting
                 if (request.isForMainFrame() && ("https".equals(url.getScheme()) || "http".equals(url.getScheme()))) {
@@ -156,9 +160,10 @@ public class MainActivity extends Activity {
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override
-            public boolean onConsoleMessage(ConsoleMessage m) { // page errors go into the log the problem screen shows
+            public boolean onConsoleMessage(ConsoleMessage m) { // page errors and start-up steps go into the saved log
                 if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR)
                     log("page error: " + m.message() + " (" + m.sourceId() + ":" + m.lineNumber() + ")");
+                else if (m.message().startsWith("[rooftop]")) log(m.message());
                 return false;
             }
 
@@ -206,13 +211,16 @@ public class MainActivity extends Activity {
         new android.app.AlertDialog.Builder(this)
                 .setTitle("Rooftop had trouble opening")
                 .setMessage("It works now. Tap Share and send the log over, so the cause can be fixed.")
-                .setPositiveButton("Share", (d, w) -> {
-                    Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                            .putExtra(Intent.EXTRA_SUBJECT, "Rooftop startup log").putExtra(Intent.EXTRA_TEXT, report);
-                    startActivity(Intent.createChooser(send, "Send the Rooftop log"));
-                })
+                .setPositiveButton("Share", (d, w) -> shareLog(report))
                 .setNegativeButton("Close", null)
                 .show();
+    }
+
+    /** Hands the log to WhatsApp, mail or any app that takes text. */
+    private void shareLog(String text) {
+        Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(Intent.EXTRA_SUBJECT, "Rooftop startup log").putExtra(Intent.EXTRA_TEXT, text);
+        startActivity(Intent.createChooser(send, "Send the Rooftop log"));
     }
 
     /** The page's own background for the time of day (the same hours as getCycleEnv in app.js). */
@@ -243,9 +251,10 @@ public class MainActivity extends Activity {
         if (web == null) return; // the page's process is gone, and that screen already says so
         String html = "<body style='background:#171615;color:#f2eee6;font:14px monospace;padding:20px'>"
                 + "<h3 style='color:#3fd6e0'>" + escape(headline) + "</h3>"
-                + "<p>Take a screenshot of this and send it over.</p>"
+                + "<p><a style='color:#3fd6e0;font-size:18px' href='rooftop:share'>Share this log</a> and send it over.</p>"
                 + "<pre style='white-space:pre-wrap;font-size:11px;color:#bab4a9'>" + escape(problemDetails()) + "</pre>"
-                + "<p><a style='color:#3fd6e0' href='rooftop:retry'>Try again</a></p></body>";
+                + "<p><a style='color:#3fd6e0;font-size:18px' href='rooftop:share'>Share this log</a> &nbsp; "
+                + "<a style='color:#3fd6e0;font-size:18px' href='rooftop:retry'>Try again</a></p></body>";
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
     }
 
@@ -266,6 +275,7 @@ public class MainActivity extends Activity {
         Rooftop app = RooftopService.app();
         if (app != null) details.append("\nRecent activity:\n").append(app.log().recent());
         details.append("\nStartup log (kept across restarts):\n").append(Diag.recent(6000));
+        details.append("\nAndroid's log for this app:\n").append(Diag.systemLog(4000));
         return details.toString();
     }
 

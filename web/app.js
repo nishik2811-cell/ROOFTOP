@@ -22,6 +22,11 @@ function storage(area) {
 const local = storage(() => localStorage);
 const session = storage(() => sessionStorage);
 
+// Inside the Android app, the steps of starting up go into the app's saved log, so a slow or stuck start on a phone
+// shows where it stalls.
+const mark = / RooftopApp$/.test(navigator.userAgent) ? (what) => console.info(`[rooftop] ${Math.round(performance.now())} ms: ${what}`) : () => {};
+mark('page script started');
+
 function hash(str) {
   let h = 2166136261;
   for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
@@ -222,7 +227,11 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
   };
   const horizon = corners[0][1] - 60;
   const W = view.x1 - view.x0, H = view.y1 - view.y0;
-  const K_MAX = Math.sqrt(10e6 / (W * H)); // the world canvas stays under 10 megapixels
+  // The world canvas stays under 10 megapixels (40 MB of graphics memory), and under 4 on a phone: the Android app's
+  // browser draws in the app's own process, and on a mid-range phone 40 MB, twice over while a reopened screen
+  // replaced the old one, crashed the app. At a phone's normal zoom 4 megapixels is still sharper than the screen.
+  const SMALL_SCREEN = Math.min(screen.width, screen.height) < 768;
+  const K_MAX = Math.sqrt((SMALL_SCREEN ? 4e6 : 10e6) / (W * H));
 
   // outline of a box on screen: back top, right top, right bottom, front bottom, left bottom, left top
   const silhouette = (b) => [iso(b.x0, b.h, b.z0), iso(b.x1, b.h, b.z0), iso(b.x1, 0, b.z0), iso(b.x1, 0, b.z1), iso(b.x0, 0, b.z1), iso(b.x0, b.h, b.z1)];
@@ -937,6 +946,7 @@ function createCity(canvas, { imageUrl, onSelect, onHover = () => {}, onFrame = 
       cam.x = centre[0] - visW() / 2; cam.y = centre[1] - visH() / 2; clamp();
     }
     render();
+    mark(`city drawn at ${Math.round(cssW)}x${Math.round(cssH)}`);
   }
 
   /* ---- frame loop ---- */
@@ -1495,6 +1505,7 @@ let lastTextAt = null;     // newest message time we have already shown
 let seenTexts = new Set(); // for highlighting new rows in the PC's message list
 
 const city = createCity($('#city'), { imageUrl: fileUrl, onSelect: (i) => select(i), onHover: (i, x, y, panning) => hover(i, x, y, panning), onFrame: placeRemoveButtons });
+mark('city built');
 
 /* ---- removing files: an × on each file in the city and in the inbox. Two clicks, so a slip does not delete. ---- */
 // Only one file can be "armed" at a time; the state lives here, not on the button, because the inbox list
@@ -1607,6 +1618,7 @@ async function refresh() {
     }
     next.files = [...localFiles, ...next.files.filter((f) => !localFile(f.name)).map((f) => ({ ...f, forYou: !f.mine && f.to !== 'everyone' }))];
     state = next;
+    if (!refresh.marked) { refresh.marked = true; mark(`first state from the server: ${next.files.length} file(s)`); }
     if (!lastOnline) toast('Back online');
     lastOnline = true;
     const key = next.files.map((f) => f.name + ':' + f.size).join('|');
@@ -4196,7 +4208,7 @@ const initialMode = savedCycle || (legacyTheme === 'dark' ? 'night' : legacyThem
 applyCycle(initialMode);
 
 /* ---- start ---- */
-setTimeout(() => { $('#loader')?.classList.add('done'); window.rooftopStarted = true; }, reduceMotion ? 0 : 1300); // the Android app checks this flag
+setTimeout(() => { $('#loader')?.classList.add('done'); window.rooftopStarted = true; mark('page started (loader timer)'); }, reduceMotion ? 0 : 1300); // the Android app checks this flag
 
 /** Calls fn once three frames in a row come quickly (the page is no longer busy), or after 1.5 s at the latest. */
 function whenFramesSettle(fn) {
@@ -4228,6 +4240,7 @@ function runIntro() {
   // they are past, or the opening stutters on a phone. The loader covers the wait; at most 1.5 s.
   whenFramesSettle(() => {
     if (entered) return;
+    mark('first frames settled: opening starts');
     $('#loader').classList.add('done'); // the city is drawn: show it now, so the opening is not played behind the loader
     city.tour();
     // the big ROOFTOP letters rise as the loader fades, where they can be seen (behind it, they seemed never to move)
@@ -4315,3 +4328,4 @@ if (isLocal) {
   loadConnect();
   setInterval(loadConnect, 5000); // new Wi-Fi or hotspot means a new address, so a new QR code
 }
+mark('page script finished');
