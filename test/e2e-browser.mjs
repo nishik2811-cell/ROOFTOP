@@ -60,7 +60,7 @@ const B = await page(lan, 'Phone B');
 const C = await page(lan, 'Phone C');
 const state = (p) => p.evaluate(async () => (await fetch(withPin('/api/state'))).json());
 await B.waitForFunction(() => [...document.querySelectorAll('#sendTo option')].some((o) => o.textContent.includes('Phone C') && !o.disabled), null, { timeout: 20000 });
-await B.waitForFunction(() => [...document.querySelectorAll('#sendTo option')].some((o) => o.textContent.includes('(PC)') && !o.disabled), null, { timeout: 20000 });
+await B.waitForFunction(() => [...document.querySelectorAll('#sendTo option')].some((o) => o.textContent.includes('(host)') && !o.disabled), null, { timeout: 20000 });
 check(true, 'B lists Phone C and the PC as recipients with keys');
 
 async function receiveOnPhone(p, expectName) {
@@ -121,7 +121,7 @@ await C.goto(lan.split('/?')[0] + '/#v=' + bPrint);
 await C.waitForFunction(() => [...document.querySelectorAll('#sendTo option')].some((o) => o.textContent.includes('Phone B') && o.textContent.includes('verified') && !o.textContent.includes('not verified')), null, { timeout: 20000 });
 check(true, "after scanning B's key link, C's Send to list marks Phone B as verified");
 const cOptions = await C.$$eval('#sendTo option', (o) => o.map((x) => x.textContent));
-check(cOptions.some((t) => t.includes('(PC)') && t.includes('not verified')), 'devices nobody verified are marked "not verified": ' + JSON.stringify(cOptions));
+check(cOptions.some((t) => t.includes('(host)') && t.includes('not verified')), 'devices nobody verified are marked "not verified": ' + JSON.stringify(cOptions));
 
 // 4. a device with no key is shown as such and never gets a plain copy
 await page(lan, 'No key phone', true); // a browser without Web Crypto: it can never get a key

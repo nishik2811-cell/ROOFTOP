@@ -2078,7 +2078,7 @@ function renderRecipients(force = false) {
 
   // files: only devices with a key can be picked, and each says whether its key has been verified
   const files = [['*', 'Everyone', false], ...people.map((d) => [d.id,
-    `${initials(d.name)} · ${d.name}${d.pc ? ' (PC)' : ''}${d.key ? (isVerified(d.key) ? ' ✓ verified' : ' · not verified') : d.pc ? ' · PC page closed' : ' · no key yet'}`, !d.key])];
+    `${initials(d.name)} · ${d.name}${d.pc ? ' (host)' : ''}${d.key ? (isVerified(d.key) ? ' ✓ verified' : ' · not verified') : d.pc ? ' · host page closed' : ' · no key yet'}`, !d.key])];
 
   const select = $('#sendTo');
   if (select) {
@@ -2095,7 +2095,7 @@ function renderRecipients(force = false) {
 
     // Update button text
     const curPerson = people.find((p) => p.id === curVal);
-    const curName = curVal === '*' ? 'Everyone' : (curPerson ? curPerson.name + (curPerson.pc ? ' (PC)' : '') : curVal ? `${curVal.split(',').length} people` : 'Choose people');
+    const curName = curVal === '*' ? 'Everyone' : (curPerson ? curPerson.name + (curPerson.pc ? ' (host)' : '') : curVal ? `${curVal.split(',').length} people` : 'Choose people');
     const nameEl = $('#sendToName');
     if (nameEl) nameEl.textContent = curName;
 
@@ -2131,14 +2131,14 @@ function renderRecipients(force = false) {
         const isSel = curVal.split(',').includes(p.id);
         const off = !p.key;
         const ver = p.key && isVerified(p.key);
-        const subText = ver ? '✓ Verified' : (p.key ? 'End-to-end encrypted' : (p.pc ? 'PC page closed' : 'No key yet'));
+        const subText = ver ? '✓ Verified' : (p.key ? 'End-to-end encrypted' : (p.pc ? 'Host page closed' : 'No key yet'));
 
         const item = el('li', {
           className: 'to-item' + (isSel ? ' selected' : '') + (off ? ' disabled' : '')
         },
           avatar(p),
           el('div', { className: 'to-item-info' },
-            el('span', { className: 'to-item-name', textContent: p.name + (p.pc ? ' (PC)' : '') }),
+            el('span', { className: 'to-item-name', textContent: p.name + (p.pc ? ' (host)' : '') }),
             el('span', { className: 'to-item-sub' + (ver ? ' verified' : ''), textContent: subText })
           ),
           icon('i-check')
@@ -4276,7 +4276,7 @@ function slideToEnter(enter) {
   const place = (to) => {
     x = to;
     knob.style.transform = `translateX(${to}px)`;
-    fill.style.width = `${to + knob.offsetWidth + 4}px`;
+    fill.style.clipPath = `inset(0 ${Math.max(0, track.clientWidth - to - knob.offsetWidth - 4)}px 0 0 round 999px)`;
     track.style.setProperty('--p', max ? to / max : 0);
   };
   const finish = () => { if (done) return; done = true; track.classList.add('done'); place(max || track.clientWidth - knob.offsetWidth - 8); enter(); };
