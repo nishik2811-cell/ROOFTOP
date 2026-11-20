@@ -115,6 +115,10 @@ public class PinGuard {
             return;
         }
         if (retired.contains(attempt)) throw new WrongPinException(ip, false); // a phone from an old session, not a guess
+        // Only something that could be the PIN is a guess. A missing PIN or an old link key (a page left open while the
+        // host restarted keeps asking with it) is turned away without counting: counting it locked such phones out
+        // within half a minute, even from the new QR code. Link keys are far too long to guess, so nothing is lost.
+        if (attempt == null || !attempt.matches("[0-9]{6}")) throw new WrongPinException(ip, false);
         throw new WrongPinException(ip, countFail(key));
     }
 

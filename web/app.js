@@ -72,6 +72,7 @@ function timeAgo(ms) {
 const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 const params = new URLSearchParams(location.search);
 let pin = params.get('pin') || session.get('rooftop-pin') || '';
+let pinTyped = 0; // counts PINs typed in, even the same one again (see watchChanges)
 if (params.has('pin')) {
   session.set('rooftop-pin', pin);
   history.replaceState(null, '', location.pathname); // keep the PIN out of the address bar
@@ -2066,6 +2067,7 @@ function toggleSendToMenu(open) {
   const target = typeof open === 'boolean' ? open : !isCurrentlyOpen;
   menu.hidden = !target;
   btn.setAttribute('aria-expanded', String(target));
+  document.body.classList.toggle('to-menu-open', target); // the files-ready note would sit on the list (see style.css)
 }
 
 /** Who can receive: everyone, the PC (when you are a guest), and every other browser that is connected. */
@@ -4117,6 +4119,7 @@ $('#pinForm').addEventListener('submit', (e) => {
   const value = $('#pinInput').value.trim();
   if (!/^\d{6}$/.test(value)) { $('#pinError').textContent = 'The PIN is 6 digits.'; return; }
   pin = value;
+  pinTyped++;
   session.set('rooftop-pin', pin);
   $('#sheet-pin').close();
   refresh();
@@ -4307,7 +4310,13 @@ async function watchChanges() {
   for (;;) {
     if (!pin && !isLocal) { await sleep(3000); continue; }
     try {
+      const typed = pinTyped;
       const res = await fetch(withPin('/api/wait?v=' + seen), { cache: 'no-store' });
+      if (res.status === 403) { // the PC restarted or started a new session: ask again only once a PIN is typed in,
+        refresh();                // or every try counts against this device and it ends up locked out
+        do await sleep(1000); while (pinTyped === typed && !isLocal); // the PC's own page just waits a second
+        continue;
+      }
       if (!res.ok) { await sleep(3000); continue; }
       const { v } = await res.json();
       if (seen >= 0 && v !== seen) refresh();

@@ -1891,7 +1891,8 @@ dialog.sheet-chat { width: min(860px, 100vw); }
 .msg.flash .bubble { animation: flash 1.6s var(--ease); }
 @keyframes flash { from { box-shadow: 0 0 0 3px var(--accent); } }
 .typing { min-height: 1.2em; margin: 0; color: var(--chalk-dim); font-size: 11px; font-style: italic; }
-.chat-form { position: static; margin: 0; padding: 0; border: 0; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+/* minmax(0, 1fr): the message box grows with what is typed (field-sizing), and a plain 1fr let it push Send off screen */
+.chat-form { position: static; margin: 0; padding: 0; border: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
 .chat-form textarea {
   width: 100%; min-height: 42px; max-height: 140px; padding: 10px 12px; resize: none;
   border: 1px solid var(--ink-line); border-radius: 10px; background: var(--ink-raised); color: var(--chalk);
@@ -1914,7 +1915,7 @@ dialog.sheet-chat { width: min(860px, 100vw); }
 .sub-h { margin-top: 6px !important; color: var(--chalk-dim) !important; }
 
 @media (max-width: 767px) {
-  .chat-wrap { grid-template-columns: 1fr; height: 82dvh; }
+  .chat-wrap { grid-template-columns: minmax(0, 1fr); height: 82dvh; } /* the screen's width wins: no column wider than it */
   .convs { border-right: 0; display: none; }
   .convs.active { display: flex; }
   .group-new { grid-column: 1; }
@@ -2253,6 +2254,7 @@ button.notify-art.on { color: var(--ink); background: var(--accent); }
 
 .incoming-status { position: absolute; left: 14px; bottom: 76px; z-index: 4; max-width: calc(100% - 28px); padding: 10px 14px; border: 1px solid var(--chalk-dim); border-radius: 12px; background: var(--ink); color: var(--chalk); font: 12px/1.4 var(--mono); cursor: pointer; }
 body.intro-on .incoming-status { visibility: hidden; }
+body.to-menu-open .incoming-status { visibility: hidden; } /* it sat on the Send to list; back once that closes */
 
 /* chat: messages stack from the top; the list no longer stretches them apart when there are only a few */
 #textList { align-content: start; }

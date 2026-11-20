@@ -103,7 +103,9 @@ public class WebServer {
 
     private void route(Http.Request req, Http.Response res) throws IOException {
         try {
-            res.header("X-Content-Type-Options", "nosniff").header("Referrer-Policy", "no-referrer");
+            // SAMEORIGIN: another website must not show this PC's own page (no PIN needed) in a frame and steer clicks on it;
+            // the page's own PDF previews are same-origin and still work
+            res.header("X-Content-Type-Options", "nosniff").header("Referrer-Policy", "no-referrer").header("X-Frame-Options", "SAMEORIGIN");
             if (req.remote.isLoopbackAddress() && !(isLocalName(hostOf(req.header("Host")))
                     && (req.header("Origin") == null || isLocalName(hostOf(req.header("Origin").replaceFirst("^https?://", "")))))) {
                 // the PC's own page needs no PIN, so a web page elsewhere (or a DNS name rebound to 127.0.0.1) must not reach it

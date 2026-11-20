@@ -42,6 +42,7 @@ public class SelfTest {
             }
         }
         check(Texts.isPalindrome("123321") && !Texts.isPalindrome("123456"), "palindrome PINs detected");
+        keepAliveChecks();
 
         // a new session gives a new PIN; the old one stops working but does not count as a wrong guess
         PinGuard guard = new PinGuard();
@@ -53,6 +54,21 @@ public class SelfTest {
         boolean newWorks = true;
         try { guard.check("1.2.3.4", guard.pin()); } catch (rooftop.error.WrongPinException e) { newWorks = false; }
         check(!guard.pin().equals(old) && oldRejected && newWorks, "new session: old PIN refused, phone not locked out");
+
+        // a page left open across a host restart keeps asking with an old link key: refused, but never a lockout;
+        // ten wrong six-digit PINs still are
+        PinGuard freshHost = new PinGuard();
+        for (int i = 0; i < 30; i++) {
+            try { freshHost.check("5.6.7.8", "oldlinkkey12"); } catch (rooftop.error.WrongPinException ignored) { }
+            try { freshHost.check("5.6.7.8", null); } catch (rooftop.error.WrongPinException ignored) { }
+        }
+        boolean keyStillWorks = true;
+        try { freshHost.check("5.6.7.8", freshHost.linkKey()); } catch (rooftop.error.WrongPinException e) { keyStillWorks = false; }
+        boolean guesserBlocked = false;
+        for (int i = 0; i < 10; i++) {
+            try { freshHost.check("9.9.9.9", String.format("%06d", i)); } catch (rooftop.error.WrongPinException e) { guesserBlocked = e.isBlocked(); }
+        }
+        check(keyStillWorks && guesserBlocked, "an old link key or no PIN never locks a phone out; ten wrong PINs still do");
 
         // duplicate names get numbered instead of overwriting
         Path dir = Files.createTempDirectory("rooftop-test");
@@ -735,6 +751,47 @@ public class SelfTest {
             to.shutdownOutput();
         } catch (IOException ignored) {
             // one side closed
+        }
+    }
+
+    /** The HTTP server keeps connections for more requests, but never guesses where a request starts. */
+    private static void keepAliveChecks() throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newCachedThreadPool();
+        try (ServerSocket server = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+            rooftop.net.Http.serve(server, (req, res) -> res.send(200, "text/plain", req.path), pool, line -> { });
+            int port = server.getLocalPort();
+            // each answer to "GET /a" is "HTTP/1.1 200 ... /a"; read whatever the server sends until it closes or 1.5 s pass
+            java.util.function.Function<String, String> talk = (requests) -> {
+                try (Socket s = new Socket(InetAddress.getLoopbackAddress(), port)) {
+                    s.setSoTimeout(1500);
+                    s.getOutputStream().write(requests.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+                    java.io.ByteArrayOutputStream got = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[8192];
+                    try { for (int n; (n = s.getInputStream().read(buf)) > 0; ) got.write(buf, 0, n); }
+                    catch (java.net.SocketTimeoutException stillOpen) { got.write("<open>".getBytes()); }
+                    return got.toString(java.nio.charset.StandardCharsets.ISO_8859_1);
+                } catch (IOException e) {
+                    return "error " + e;
+                }
+            };
+            String two = talk.apply("GET /a HTTP/1.1\r\nHost: x\r\n\r\nGET /b HTTP/1.1\r\nHost: x\r\n\r\n");
+            check(two.contains("keep-alive") && two.endsWith("/b<open>") && two.indexOf("/a") < two.indexOf("/b"),
+                    "one connection carries request after request");
+            String closing = talk.apply("GET /a HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\nGET /b HTTP/1.1\r\nHost: x\r\n\r\n");
+            check(closing.contains("Connection: close") && !closing.contains("/b"), "Connection: close is honoured");
+            String chunked = talk.apply("POST /a HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    + "1c\r\nGET /smuggled HTTP/1.1\r\nHost: x\r\n\r\n0\r\n\r\n");
+            check(!chunked.contains("/smuggled") && !chunked.endsWith("<open>"), "a chunked body ends the connection: nothing in it is read as a request");
+            String small = talk.apply("POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhelloGET /b HTTP/1.1\r\nHost: x\r\n\r\n");
+            check(small.endsWith("/b<open>"), "an unread small body is skipped, and the next request still works");
+            String big = talk.apply("POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 999999999\r\n\r\nGET /b HTTP/1.1\r\nHost: x\r\n\r\n");
+            check(big.contains("/a") && !big.contains("/b"), "a large unread body closes the connection instead");
+            String negative = talk.apply("POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: -20\r\n\r\nGET /smuggled HTTP/1.1\r\nHost: x\r\n\r\n");
+            String twice = talk.apply("POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\nContent-Length: 30\r\n\r\nGET /smuggled HTTP/1.1\r\nHost: x\r\n\r\n");
+            check(negative.startsWith("HTTP/1.1 400") && twice.startsWith("HTTP/1.1 400") && !negative.contains("/smuggled") && !twice.contains("/smuggled"),
+                    "a negative or doubled Content-Length is refused, and nothing after it is read as a request");
+        } finally {
+            pool.shutdownNow();
         }
     }
 
